@@ -1997,4 +1997,4 @@ export default function POSMahaManagement() {
       )}
     </div>
   );
-}
+} 
