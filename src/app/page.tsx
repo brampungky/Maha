@@ -6,6 +6,7 @@ import {
   Download, LogOut, Home, BarChart3, Users, X,
   Printer, Send, Mail, Banknote, Smartphone, Settings
 } from 'lucide-react';
+// @ts-ignore
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 
