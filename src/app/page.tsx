@@ -15,7 +15,7 @@ const CATEGORIES = ['Apparel', 'Swimwear', 'Accessories', 'Bags', 'Consignment',
 export default function POSMahaManagement() {
   const [activeTab, setActiveTab] = useState("pos");
   const [products, setProducts] = useState([]);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [salesHistory, setSalesHistory] = useState([]);
   const [discountType, setDiscountType] = useState('percent');
