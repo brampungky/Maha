@@ -49,7 +49,7 @@ export default function POSMahaManagement() {
   // 5. TOTAL AKHIR
   const totalFinal = subtotalNet - globalDiscountAmount;
 
-  const removeFromCart = (indexToRemove) => {
+  const removeFromCart = (indexToRemove: number) => {
     setCart(prevCart => prevCart.filter((_, index) => index !== indexToRemove));
   };
 
