@@ -12,10 +12,53 @@ import * as XLSX from 'xlsx';
 
 const CATEGORIES = ['Apparel', 'Swimwear', 'Accessories', 'Bags', 'Consignment', 'Other'];
 
+// Fungsi untuk menambah suffix tanggal (1st, 2nd, 3rd, 28th) dengan <sup> kecil di atas
+function formatDateWithOrdinal(dateInput: any) {
+  if (!dateInput) return '';
+
+  let date: Date;
+
+  // Cek jika input sudah berupa objek Date
+  if (dateInput instanceof Date) {
+    date = dateInput;
+  } else if (typeof dateInput === 'string') {
+    // Jika formatnya 'DD/MM/YYYY' (misal: 28/09/2026)
+    if (dateInput.includes('/')) {
+      const parts = dateInput.split('/');
+      if (parts.length === 3) {
+        // susun ke format YYYY-MM-DD
+        date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+      } else {
+        date = new Date(dateInput);
+      }
+    } else {
+      date = new Date(dateInput);
+    }
+  } else {
+    date = new Date(dateInput);
+  }
+
+  // Jika tanggal tetap tidak valid, kembalikan teks aslinya
+  if (isNaN(date.getTime())) {
+    return String(dateInput);
+  }
+
+  const day = date.getDate();
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const year = date.getFullYear();
+
+  let suffix = 'th';
+  if (day % 10 === 1 && day !== 11) suffix = 'st';
+  else if (day % 10 === 2 && day !== 12) suffix = 'nd';
+  else if (day % 10 === 3 && day !== 13) suffix = 'rd';
+
+  return `${month} ${day}<sup>${suffix}</sup>, ${year}`;
+}
+
 export default function POSMahaManagement() {
   const [activeTab, setActiveTab] = useState("pos");
   const [products, setProducts] = useState([]);
-  const [cart, setCart] = useState<any[]>([]);
+  const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [salesHistory, setSalesHistory] = useState([]);
   const [discountType, setDiscountType] = useState('percent');
@@ -49,7 +92,7 @@ export default function POSMahaManagement() {
   // 5. TOTAL AKHIR
   const totalFinal = subtotalNet - globalDiscountAmount;
 
-  const removeFromCart = (indexToRemove: number) => {
+  const removeFromCart = (indexToRemove) => {
     setCart(prevCart => prevCart.filter((_, index) => index !== indexToRemove));
   };
 
@@ -164,9 +207,12 @@ export default function POSMahaManagement() {
   const [sizeModal, setSizeModal] = useState({ show: false, product: null });
   const fileInputRef = useRef(null);
 
-  const [dateRange, setDateRange] = useState('all'); // options: all, daily, monthly, custom
-  const [customStart, setCustomStart] = useState('');
-  const [customEnd, setCustomEnd] = useState('');
+  // Fungsi helper untuk mengambil tanggal hari ini dengan format YYYY-MM-DD
+  const getTodayString = () => new Date().toISOString().split('T')[0];
+
+  const [dateRange, setDateRange] = useState('daily'); // Default langsung ke 'daily' (Hari Ini)
+  const [customStart, setCustomStart] = useState(getTodayString()); // Tanggal awal default hari ini
+  const [customEnd, setCustomEnd] = useState(getTodayString());     // Tanggal akhir default hari ini
 
   const getFilteredSales = () => {
     // 1. Ambil tanggal hari ini dan paksa ke format lokal yang sama dengan data kamu (M/D/YYYY atau D/M/YYYY)
@@ -959,6 +1005,28 @@ export default function POSMahaManagement() {
         <td style="text-align:center">${row.method}</td>
       </tr>
     `).join('');
+    
+    // === PENENTUAN FORMAT PERIODE DENGAN ORDINAL SUPERSCRIPT ===
+    let periodText = "Semua";
+
+    if (dateRange === 'daily' || dateRange === 'today') {
+      const todayFormatted = formatDateWithOrdinal(new Date());
+      periodText = `${todayFormatted} - ${todayFormatted}`;
+    } else if (dateRange === 'custom' && customStart && customEnd) {
+      const startFormatted = formatDateWithOrdinal(customStart);
+      const endFormatted = formatDateWithOrdinal(customEnd);
+      periodText = `${startFormatted} - ${endFormatted}`;
+    } else if (dateRange === 'all') {
+      periodText = "Semua";
+    } else if (safeSales && safeSales.length > 0) {
+      // Fallback: baca dari daftar transaksi jika ada filter lain (misal monthly)
+      const dates = safeSales.map(s => s.created_at || s.date_raw || s.date).filter(Boolean);
+      if (dates.length > 0) {
+        const firstDate = dates[dates.length - 1];
+        const lastDate = dates[0];
+        periodText = `${formatDateWithOrdinal(firstDate)} - ${formatDateWithOrdinal(lastDate)}`;
+      }
+    }
 
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
@@ -1006,7 +1074,7 @@ export default function POSMahaManagement() {
           <div class="header">
           <h1 style="margin:0; font-size: 18px;">MAHA The Label, Lembongan - SALES REPORT</h1>
           <p style="margin:5px 0; font-size:10px; font-weight: bold; color: #475569;">
-            Periode: ${typeof startDate !== 'undefined' && startDate ? startDate : 'Semua'} s/d ${typeof endDate !== 'undefined' && endDate ? endDate : 'Sekarang'}
+            Periode: ${periodText}
           </p>
         </div>
 
@@ -1997,4 +2065,4 @@ export default function POSMahaManagement() {
       )}
     </div>
   );
-} 
+}
