@@ -215,43 +215,70 @@ export default function POSMahaManagement() {
   const [customEnd, setCustomEnd] = useState(getTodayString());     // Tanggal akhir default hari ini
 
   const getFilteredSales = () => {
-    // 1. Ambil tanggal hari ini dan paksa ke format lokal yang sama dengan data kamu (M/D/YYYY atau D/M/YYYY)
     const now = new Date();
-    const todayFormatted = now.toLocaleDateString('en-US'); // Menghasilkan format "5/6/2026"
-  
-    // 2. Ambil bulan dan tahun saja untuk filter bulanan
-    const currentMonth = (now.getMonth() + 1).toString();
-    const currentYear = now.getFullYear().toString();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    const currentDate = now.getDate();
 
     return salesHistory.filter(sale => {
-      // Pastikan sale.date adalah string
-      const transactionDate = sale.date ? String(sale.date).trim() : "";
+      // 1. Ambil string tanggal / timestamp dari transaksi
+      const rawDate = sale.date || sale.created_at;
+      if (!rawDate) return false;
 
-      // DEBUG untuk memastikan format sudah sama
-      console.log("Membandingkan:", transactionDate, "vs", todayFormatted);
+      // 2. Ubah tanggal transaksi menjadi objek Date JS
+      let saleDateObj: Date;
 
+      if (typeof rawDate === 'string' && rawDate.includes('/')) {
+        // Jika formatnya 'DD/MM/YYYY' atau 'MM/DD/YYYY'
+        const parts = rawDate.split('/');
+        if (parts.length === 3) {
+          // Cek jika bagian pertama > 12 (pasti DD/MM/YYYY)
+          if (Number(parts[0]) > 12) {
+            saleDateObj = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+          } else {
+            saleDateObj = new Date(rawDate);
+          }
+        } else {
+          saleDateObj = new Date(rawDate);
+        }
+      } else {
+        saleDateObj = new Date(rawDate);
+      }
+
+      // Jika tanggal tidak valid, lewati
+      if (isNaN(saleDateObj.getTime())) return false;
+
+      // 3. Logika Filter Berdasarkan dateRange
       if (dateRange === 'daily') {
-        // Bandingkan string tanggal apa adanya
-        return transactionDate === todayFormatted;
+        // Bandingkan Tahun, Bulan, dan Tanggal secara persis dengan Hari Ini
+        return (
+          saleDateObj.getFullYear() === currentYear &&
+          saleDateObj.getMonth() === currentMonth &&
+          saleDateObj.getDate() === currentDate
+        );
       }
-    
+
       if (dateRange === 'monthly') {
-        // Cek apakah di dalam string tanggal mengandung bulan/tahun yang sama
-        // Contoh: "5/5/2026" mengandung "/5/2026"
-        return transactionDate.includes(`/${currentYear}`) && 
-              (transactionDate.startsWith(`${currentMonth}/`) || transactionDate.includes(`/${currentMonth}/`));
+        // Bandingkan Tahun dan Bulan saja
+        return (
+          saleDateObj.getFullYear() === currentYear &&
+          saleDateObj.getMonth() === currentMonth
+        );
       }
-    
+
       if (dateRange === 'custom') {
         if (!customStart || !customEnd) return true;
-        // Untuk custom, kita ubah string "5/5/2026" menjadi objek Date agar bisa dibandingkan >= atau <=
-        const d = new Date(transactionDate);
         const start = new Date(customStart);
         const end = new Date(customEnd);
-        return d >= start && d <= end;
+        
+        // Set jam ke awal hari & akhir hari agar rentang custom akurat
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+
+        return saleDateObj >= start && saleDateObj <= end;
       }
-    
-      return true; 
+
+      return true; // Untuk 'all'
     });
   };
 
