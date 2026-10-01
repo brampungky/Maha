@@ -1861,10 +1861,27 @@ MAHA THE LABEL
                     const pin = prompt("PIN:");
                     if (!pin) return;
 
-                    const roleChoice = prompt("Pilih Role:\n1. Super Admin\n2. Staff\n3. Maha Manager", "2");
-                    let role = "Staff";
-                    if (roleChoice === "1") role = "Super Admin";
-                    else if (roleChoice === "3") role = "Maha Manager";
+                    const roleChoice = prompt(
+                      "Pilih Role / Jabatan:\n1. Admin\n2. Staff\n3. Manager\n4. General Admin", 
+                      "2"
+                    );
+
+                    let role = "Staff"; // Default
+
+                    switch (roleChoice) {
+                      case "1":
+                        role = "Admin";
+                        break;
+                      case "2":
+                        role = "Staff";
+                        break;
+                      case "3":
+                        role = "Manager";
+                        break;
+                      case "4":
+                        role = "General Admin";
+                        break;
+                    }
 
                     // 1. Dapatkan daftar nama cabang secara dinamis dari outletsList
                     const availableOutlets = outletsList.map((item: any) => 
