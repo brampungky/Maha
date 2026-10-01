@@ -12,21 +12,17 @@ import * as XLSX from 'xlsx';
 
 const CATEGORIES = ['Apparel', 'Swimwear', 'Accessories', 'Bags', 'Consignment', 'Other'];
 
-// Fungsi untuk menambah suffix tanggal (1st, 2nd, 3rd, 28th) dengan <sup> kecil di atas
 function formatDateWithOrdinal(dateInput: any) {
   if (!dateInput) return '';
 
   let date: Date;
 
-  // Cek jika input sudah berupa objek Date
   if (dateInput instanceof Date) {
     date = dateInput;
   } else if (typeof dateInput === 'string') {
-    // Jika formatnya 'DD/MM/YYYY' (misal: 28/09/2026)
     if (dateInput.includes('/')) {
       const parts = dateInput.split('/');
       if (parts.length === 3) {
-        // susun ke format YYYY-MM-DD
         date = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
       } else {
         date = new Date(dateInput);
@@ -38,7 +34,6 @@ function formatDateWithOrdinal(dateInput: any) {
     date = new Date(dateInput);
   }
 
-  // Jika tanggal tetap tidak valid, kembalikan teks aslinya
   if (isNaN(date.getTime())) {
     return String(dateInput);
   }
@@ -56,11 +51,20 @@ function formatDateWithOrdinal(dateInput: any) {
 }
 
 export default function POSMahaManagement() {
+  const [selectedOutlet, setSelectedOutlet] = useState('Maha Lembongan');
+  const [outletsList, setOutletsList] = useState<any[]>([]);
+
+  // State untuk modal Tambah Cabang
+  const [isAddOutletOpen, setIsAddOutletOpen] = useState(false);
+  const [newOutletName, setNewOutletName] = useState("");
+  const [newOutletAddress, setNewOutletAddress] = useState("");
+  const [isSubmittingOutlet, setIsSubmittingOutlet] = useState(false);
+
   const [activeTab, setActiveTab] = useState("pos");
-  const [products, setProducts] = useState([]);
-  const [cart, setCart] = useState([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [cart, setCart] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [salesHistory, setSalesHistory] = useState([]);
+  const [salesHistory, setSalesHistory] = useState<any[]>([]);
   const [discountType, setDiscountType] = useState('percent');
   const [discountValue, setDiscountValue] = useState(0);
   const [itemDiscType, setItemDiscType] = useState('percent');
@@ -68,49 +72,38 @@ export default function POSMahaManagement() {
   const [paymentMethod, setPaymentMethod] = useState('Cashless');
   const [customer, setCustomer] = useState({ name: '', contact: '', email: '' });
 
+  const displayedProducts = products.filter(product => {
+    if (selectedOutlet === 'ALL') return true;
+    return product.outlet_name === selectedOutlet;
+  });
+
   const subtotalGross = cart.reduce((acc, item) => {
     return acc + (Number(item.price || 0) * item.qty);
   }, 0);
 
-  // 1. Hitung total nominal diskon dari SEMUA item di keranjang
   const totalItemDiscount = cart.reduce((acc, item) => {
     const hargaAsliTotal = Number(item.price || 0) * item.qty;
     const hargaDiskonTotal = Number(item.discountedPrice || item.price) * item.qty;
     return acc + (hargaAsliTotal - hargaDiskonTotal);
   }, 0);
 
-  // 2. Hitung subtotal bersih (setelah diskon item)
   const subtotalNet = cart.reduce((acc, item) => acc + (Number(item.discountedPrice || item.price) * item.qty), 0);
 
   const globalDiscountAmount = discountType === 'percent' 
     ? (subtotalNet * discountValue / 100) 
     : discountValue;
 
-  // 4. SEKARANG baru bisa hitung total diskon (Item + Global)
   const grandTotalDiscount = totalItemDiscount + globalDiscountAmount;
-
-  // 5. TOTAL AKHIR
   const totalFinal = subtotalNet - globalDiscountAmount;
 
-  const removeFromCart = (indexToRemove) => {
-    setCart(prevCart => prevCart.filter((_, index) => index !== indexToRemove));
-  };
-
-  const removeFromCartByIndex = (index) => {
+  const removeFromCartByIndex = (index: number) => {
     setCart(prevCart => prevCart.filter((_, i) => i !== index));
   };
 
-  // Di tampilan:
-  {cart.map((item, index) => (
-    <button onClick={() => removeFromCartByIndex(index)}>...</button>
-  ))}
-  
-  // Fungsi Hapus Transaksi
-  const deleteTransaction = async (saleId) => {
+  const deleteTransaction = async (saleId: any) => {
     if (!confirm("Apakah Anda yakin ingin menghapus transaksi ini dari database?")) return;
 
     try {
-      // 1. Hapus Permanen dari Tabel 'sales' Supabase
       const { error } = await supabase
         .from('sales')
         .delete()
@@ -121,16 +114,14 @@ export default function POSMahaManagement() {
         return;
       }
 
-      // 2. Hapus dari State Tampilan Lokal (React)
       setSalesHistory((prev) => prev.filter((s) => s.id !== saleId));
       alert("Transaksi berhasil dihapus secara permanen!");
-    } catch (err) {
+    } catch (err: any) {
       alert("Terjadi kesalahan: " + err.message);
     }
   };
 
-  // Fungsi Edit Payment Method
-  const editPaymentMethod = (id, currentMethod) => {
+  const editPaymentMethod = (id: any, currentMethod: string) => {
     const newMethod = currentMethod === 'Cash' ? 'Cashless' : 'Cash';
     if (window.confirm(`Ubah metode pembayaran ke ${newMethod}?`)) {
       setSalesHistory(prev => prev.map(sale => 
@@ -139,80 +130,115 @@ export default function POSMahaManagement() {
     }
   };
 
-  // --- STATE SETTINGS & LOGO ---
   const [shopDetails, setShopDetails] = useState({
-    logo: null,
+    logo: null as string | null,
     address: "Dream Beach Street, Nusa Lembongan",
     phone: "0823 4069 0067",
     ig: "@maha_thelabel"
   });
-  const logoInputRef = useRef(null);
-  const receiptRef = useRef(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const receiptRef = useRef<HTMLDivElement>(null);
 
-  const handleAddStaff = async (newStaffData) => {
-    console.log("1. Fungsi handleAddStaff dipanggil dengan data:", newStaffData);
-
-    if (!newStaffData || !newStaffData.name || !newStaffData.pin) {
-      alert("Nama dan PIN tidak boleh kosong!");
-      return;
-    }
-
-    try {
-      // Generate ID angka otomatis untuk mengisi kolom 'id int8' di Supabase
-      const newId = Math.floor(Date.now() / 1000);
-
-      console.log("2. Mengirim data ke Supabase...");
-
-      const { data, error } = await supabase
-        .from('staff')
-        .insert([
-          {
-            id: newId,
-            name: newStaffData.name,
-            pin: String(newStaffData.pin).trim(), // Dikirim sebagai String/Text
-            role: newStaffData.role || 'Staff'
-          }
-        ])
-        .select();
-
-      if (error) {
-        console.error("3. Error Supabase:", error);
-        alert("Gagal menyimpan ke Supabase: " + error.message);
-        return;
-      }
-
-      console.log("4. Respon sukses dari Supabase:", data);
-
-      if (data && data.length > 0) {
-        // Perbarui state lokal
-        setStaffList((prev) => [...prev, data[0]]);
-        alert(`Staf ${newStaffData.name} berhasil ditambahkan!`);
-      }
-    } catch (err) {
-      console.error("Catch Error:", err);
-      alert("Terjadi kesalahan sistem: " + err.message);
-    }
-  };
-
-  const [staffList, setStaffList] = useState([
+  const [staffList, setStaffList] = useState<any[]>([
     { id: 1, name: 'Nila R', pin: '1111', role: 'Staff' },
     { id: 2, name: 'Bram Pungky', pin: '2222', role: 'Staff' },
     { id: 3, name: 'Manager_Maha', pin: '1234', role: 'Manager' }
   ]);
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [loginPin, setLoginPin] = useState("");
   const [lastActivity, setLastActivity] = useState(Date.now());
   const [showReceipt, setShowReceipt] = useState(false);
-  const [lastTransaction, setLastTransaction] = useState(null);
-  const [sizeModal, setSizeModal] = useState({ show: false, product: null });
-  const fileInputRef = useRef(null);
+  const [lastTransaction, setLastTransaction] = useState<any>(null);
+  const [sizeModal, setSizeModal] = useState<{ show: boolean; product: any }>({ show: false, product: null });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fungsi helper untuk mengambil tanggal hari ini dengan format YYYY-MM-DD
+  // Pengecekan role pengguna yang sedang login
+  const userRole = (currentUser?.role || "").toString().toLowerCase().trim();
+  const isManager = userRole === 'manager';
+
+  const fetchOutlets = async () => {
+    const { data, error } = await supabase
+      .from('outlets')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (!error && data) {
+      setOutletsList(data);
+    }
+  };
+
+  const handleAddNewOutlet = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!isManager) {
+      alert("Akses ditolak! Hanya Manager yang berhak menambah cabang baru.");
+      return;
+    }
+
+    if (!newOutletName.trim()) return;
+
+    const rawInput = newOutletName.trim();
+
+    // 1. Format Nama & Kode
+    const formattedName = rawInput.toLowerCase().startsWith('maha')
+      ? rawInput.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+      : `Maha ${rawInput.charAt(0).toUpperCase() + rawInput.slice(1)}`;
+
+    const generatedCode = rawInput.replace(/^maha\s*/i, '').trim().toLowerCase();
+
+    // 2. Insert ke Database Supabase & Ambil Return Data (.select())
+    const { data, error } = await supabase
+      .from('outlets')
+      .insert([{ name: formattedName, code: generatedCode }])
+      .select(); // <-- .select() agar Supabase mengembalikan data yang baru dibuat
+
+    if (error) {
+      alert("Gagal menambah cabang: " + error.message);
+    } else {
+      alert(`Cabang "${formattedName}" berhasil ditambahkan!`);
+      setNewOutletName('');
+
+      // 3. UPDATE STATE LANGSUNG AGAR DROPDOWN SEKETIKA TERUPDATE!
+      if (data && data.length > 0) {
+        setOutletsList((prevOutlets) => [...prevOutlets, data[0]]);
+      }
+      
+      // Tetap panggil fetchOutlets untuk memastikan sinkronisasi
+      if (typeof fetchOutlets === 'function') fetchOutlets();
+    }
+  };
+
+  useEffect(() => {
+    fetchOutlets();
+  }, []);
+
+  const [editingOutlet, setEditingOutlet] = useState<any>(null);
+
+  const handleSaveOutletDetails = async (outletId: number) => {
+    if (!editingOutlet) return;
+
+    const { error } = await supabase
+      .from('outlets')
+      .update({
+        address: editingOutlet.address,
+        phone: editingOutlet.phone
+      })
+      .eq('id', outletId);
+
+    if (error) {
+      alert("Gagal update detail cabang: " + error.message);
+    } else {
+      alert("Detail cabang berhasil diperbarui!");
+      fetchOutlets(); // Refresh list
+      setEditingOutlet(null);
+    }
+  };
+
   const getTodayString = () => new Date().toISOString().split('T')[0];
 
-  const [dateRange, setDateRange] = useState('daily'); // Default langsung ke 'daily' (Hari Ini)
-  const [customStart, setCustomStart] = useState(getTodayString()); // Tanggal awal default hari ini
-  const [customEnd, setCustomEnd] = useState(getTodayString());     // Tanggal akhir default hari ini
+  const [dateRange, setDateRange] = useState('daily');
+  const [customStart, setCustomStart] = useState(getTodayString());
+  const [customEnd, setCustomEnd] = useState(getTodayString());
 
   const getFilteredSales = () => {
     const now = new Date();
@@ -220,19 +246,53 @@ export default function POSMahaManagement() {
     const currentMonth = now.getMonth();
     const currentDate = now.getDate();
 
-    return salesHistory.filter(sale => {
-      // 1. Ambil string tanggal / timestamp dari transaksi
+    // Helper untuk membersihkan kata "maha", spasi, dan kapital
+    const clean = (str: any) => {
+      if (!str) return "";
+      return str.toString().toLowerCase().replace(/maha/g, '').replace(/[^a-z0-9]/g, '').trim();
+    };
+
+    const userRole = (currentUser?.role || "").toString().toLowerCase().trim();
+    
+    // Outlet user saat ini
+    const rawUserOutlet = currentUser?.outlet || currentUser?.outlet_name || currentUser?.cabang || "";
+    const userOutletClean = clean(rawUserOutlet);
+
+    // Outlet yang dipilih di dropdown
+    const selectedClean = clean(selectedOutlet);
+
+    return salesHistory.filter((sale: any) => {
+      // 1. Ambil nama outlet dari transaksi
+      const rawSaleOutlet = sale.outlet_name || sale.outlet || sale.cabang || sale.branch || "";
+      const saleOutletClean = clean(rawSaleOutlet);
+
+      // 2. FILTER CABANG (Sangat Fleksibel)
+      if (userRole === 'staff' || userRole === 'admin') {
+        // Staff / Admin: Jika transaksi punya outlet, harus cocok dengan user
+        if (userOutletClean && saleOutletClean) {
+          if (!saleOutletClean.includes(userOutletClean) && !userOutletClean.includes(saleOutletClean)) {
+            return false;
+          }
+        }
+      } else {
+        // Manager / General Staff: Jika memilih cabang spesifik di dropdown
+        if (selectedOutlet && selectedOutlet !== 'ALL') {
+          if (selectedClean && saleOutletClean) {
+            if (!saleOutletClean.includes(selectedClean) && !selectedClean.includes(saleOutletClean)) {
+              return false;
+            }
+          }
+        }
+      }
+
+      // 3. FILTER TANGGAL
       const rawDate = sale.date || sale.created_at;
       if (!rawDate) return false;
 
-      // 2. Ubah tanggal transaksi menjadi objek Date JS
       let saleDateObj: Date;
-
       if (typeof rawDate === 'string' && rawDate.includes('/')) {
-        // Jika formatnya 'DD/MM/YYYY' atau 'MM/DD/YYYY'
         const parts = rawDate.split('/');
         if (parts.length === 3) {
-          // Cek jika bagian pertama > 12 (pasti DD/MM/YYYY)
           if (Number(parts[0]) > 12) {
             saleDateObj = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
           } else {
@@ -245,12 +305,9 @@ export default function POSMahaManagement() {
         saleDateObj = new Date(rawDate);
       }
 
-      // Jika tanggal tidak valid, lewati
       if (isNaN(saleDateObj.getTime())) return false;
 
-      // 3. Logika Filter Berdasarkan dateRange
       if (dateRange === 'daily') {
-        // Bandingkan Tahun, Bulan, dan Tanggal secara persis dengan Hari Ini
         return (
           saleDateObj.getFullYear() === currentYear &&
           saleDateObj.getMonth() === currentMonth &&
@@ -259,7 +316,6 @@ export default function POSMahaManagement() {
       }
 
       if (dateRange === 'monthly') {
-        // Bandingkan Tahun dan Bulan saja
         return (
           saleDateObj.getFullYear() === currentYear &&
           saleDateObj.getMonth() === currentMonth
@@ -270,46 +326,38 @@ export default function POSMahaManagement() {
         if (!customStart || !customEnd) return true;
         const start = new Date(customStart);
         const end = new Date(customEnd);
-        
-        // Set jam ke awal hari & akhir hari agar rentang custom akurat
         start.setHours(0, 0, 0, 0);
         end.setHours(23, 59, 59, 999);
-
         return saleDateObj >= start && saleDateObj <= end;
       }
 
-      return true; // Untuk 'all'
+      return true;
     });
   };
 
-  // 1. Deklarasikan fungsi pemuat data Supabase
   const fetchProductsFromSupabase = async () => {
     try {
-      // Ambil data produk
       const { data: productsData, error: prodErr } = await supabase.from('products').select('*');
       if (!prodErr && productsData) {
         setProducts(productsData);
       }
 
-      // Ambil data staf agar staf baru dari Supabase juga ikut termuat
       const { data: staffData, error: staffErr } = await supabase.from('staff').select('*');
       if (!staffErr && staffData) {
         setStaffList(staffData);
       }
 
-      // 3. Ambil data Riwayat Penjualan (diurutkan dari yang terbaru)
       const { data: salesData, error: salesErr } = await supabase
         .from('sales')
         .select('*')
         .order('created_at', { ascending: false });
 
       if (!salesErr && salesData) {
-        setSalesHistory(salesData); // Sesuaikan 'setSalesHistory' dengan nama setter state riwayat kamu
+        setSalesHistory(salesData);
       }
 
-      // 3. Ambil data Toko Setting
       const fetchSettings = async () => {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('shop_settings')
           .select('*')
           .eq('id', 1)
@@ -332,49 +380,71 @@ export default function POSMahaManagement() {
     }
   };
 
-  // 2. Panggil fungsi di dalam useEffect (sekarang posisinya sudah benar di bawah deklarasi)
   useEffect(() => {
     fetchProductsFromSupabase();
   }, []);  
 
-  // --- 1. PERBAIKAN PRINT ---
+  // Fungsi load setting cabang dari Supabase
+  const fetchShopSettings = async (targetOutlet: string) => {
+    if (!targetOutlet || targetOutlet === 'ALL') return;
+
+    const { data, error } = await supabase
+      .from('shop_settings')
+      .select('*')
+      .eq('outlet_name', targetOutlet)
+      .single();
+
+    if (data) {
+      setShopDetails({
+        logo: data.logo || '',
+        address: data.address || '',
+        phone: data.phone || '',
+        ig: data.ig || ''
+      });
+    } else {
+      // Jika cabang baru belum memiliki pengaturan
+      setShopDetails({ logo: '', address: '', phone: '', ig: '' });
+    }
+  };
+
+  // Jalankan ulang setiap kali pilihan cabang berubah
+  useEffect(() => {
+    const currentBranch = selectedOutlet !== 'ALL' 
+      ? selectedOutlet 
+      : (currentUser?.outlet || 'Maha Lembongan');
+
+    fetchShopSettings(currentBranch);
+  }, [selectedOutlet, currentUser]);
+
   const handlePrint = () => {
+    if (!receiptRef.current) return;
     const printContent = receiptRef.current.innerHTML;
     const win = window.open('', '', 'height=700,width=500');
+    if (!win) return;
   
     win.document.write(`
       <html>
         <head>
           <title>Print Struk</title>
           <style>
-            /* 1. Pengaturan Ukuran Kertas Thermal */
-            @page {
-              margin: 0;
-              size: 57mm auto; /* Mengunci lebar kertas ke 57mm */
-            }
-
-            /* 2. Styling Body agar pas di lebar 58mm */
+            @page { margin: 0; size: 57mm auto; }
             body { 
-              font-family: 'Courier New', Courier, monospace; /* Font struk klasik */
+              font-family: 'Courier New', Courier, monospace; 
               width: 57mm;
               margin: 0;
-              padding: 4px; /* Padding minimal agar teks tidak mepet pinggir */
-              font-size: 10.5px; /* Ukuran font standar struk */
+              padding: 4px;
+              font-size: 10.5px;
               line-height: 1.2;
               box-sizing: border-box;
             }
-
-            /* 3. Helper Classes */
             .text-center { text-align: center; }
             .flex { display: flex; justify-content: space-between; }
             img { 
               display: block;
               margin: 0 auto 10px auto;
-              max-width: 80%; /* Logo agar tidak terlalu lebar */
+              max-width: 80%;
               height: auto; 
             }
-
-            /* 4. Menghilangkan Header/Footer Browser (Tanggal/URL) */
             @media print {
               header, footer { display: none !important; }
               body { -webkit-print-color-adjust: exact; }
@@ -390,14 +460,13 @@ export default function POSMahaManagement() {
     win.document.close();
     win.focus();
   
-    // Memberikan waktu agar CSS dan Gambar termuat sempurna
     setTimeout(() => { 
       win.print(); 
       win.close(); 
     }, 500);
   };
 
-  const printReceipt = (transaction, isDuplicate = false) => {
+  const printReceipt = (transaction: any, isDuplicate = false) => {
     const content = `
       <div style="font-family:'Courier New', Courier, monospace; width:58mm; padding:5px; font-size:11px; line-height:1.2; box-sizing:border-box;">
         ${shopDetails.logo ? `<img src="${shopDetails.logo}" style="display:block;margin:0 auto 10px auto;max-width:80%;height:auto;" />` : `<div style="width:48px;height:48px;background:#000;color:#fff;border-radius:10px;margin:0 auto 10px auto;display:flex;align-items:center;justify-content:center;font-weight:900;">M</div>`}
@@ -427,7 +496,7 @@ export default function POSMahaManagement() {
         </div>
 
         <div style="margin-top:6px;">
-          ${transaction.items.map((it) => {
+          ${transaction.items.map((it: any) => {
             const itemName = it.Item || it.name || "Produk";
             const part = it.part || "";
             const color = it.color || "";
@@ -476,6 +545,7 @@ export default function POSMahaManagement() {
     `;
 
     const win = window.open('', '', 'height=700,width=500');
+    if (!win) return;
     win.document.write(`
       <html>
         <head>
@@ -495,17 +565,15 @@ export default function POSMahaManagement() {
     }, 300);
   };
 
-  const addToCart = (product, selectedPart, selectedColor, selectedSize, discType, discValue) => {
+  const addToCart = (product: any, selectedPart: string, selectedColor: string, selectedSize: string, discType: string, discValue: number) => {
     const originalPrice = Number(product.Price || product.price || 0);
     const stokTersedia = parseInt(product.Total || product.Display || 0);
 
-    // Samakan string agar pembandingan presisi
     const cleanPart = (selectedPart || "").toString().trim();
     const cleanColor = (selectedColor || "").toString().trim();
     const cleanSize = (selectedSize || "").toString().trim().toUpperCase();
 
     setCart(prevCart => {
-      // Cari apakah item dengan spek & diskon yang persis sama sudah ada
       const existingIndex = prevCart.findIndex(item => 
         item.Item === product.Item && 
         (item.part || "").toString().trim() === cleanPart && 
@@ -516,13 +584,11 @@ export default function POSMahaManagement() {
       );
 
       if (existingIndex !== -1) {
-        // Jika sudah ada, cek batas stok
         if (prevCart[existingIndex].qty >= stokTersedia) {
           alert("Stok tidak mencukupi!");
           return prevCart;
         }
         
-        // Tambah Qty TEPAT +1
         const newCart = [...prevCart];
         newCart[existingIndex] = {
           ...newCart[existingIndex],
@@ -530,7 +596,6 @@ export default function POSMahaManagement() {
         };
         return newCart;
       } else {
-        // Jika barang baru, pastikan stok minimal ada 1
         if (stokTersedia <= 0) {
           alert("Stok habis!");
           return prevCart;
@@ -550,52 +615,46 @@ export default function POSMahaManagement() {
             part: cleanPart,
             color: cleanColor,
             selectedSize: cleanSize,
-            qty: 1, // Mulai dari 1
+            qty: 1,
           }
         ];
       }
     });
   };
 
-  // --- 2. KIRIM WA & EMAIL ---
   const sendWhatsApp = () => {
-  if (!lastTransaction) return;
+    if (!lastTransaction) return;
 
-  // 1. Bersihkan nomor telepon
-  let phone = lastTransaction.customer?.contact || "";
-  phone = phone.replace(/\D/g, ''); 
+    let phone = lastTransaction.customer?.contact || "";
+    phone = phone.replace(/\D/g, ''); 
     if (phone.startsWith('0')) phone = '62' + phone.substring(1);
 
-    // 2. Susun detail barang (Gunakan \n untuk baris baru)
     const itemDetails = lastTransaction.items
-      .map((it) => {
+      .map((it: any) => {
         const itemName = it.Item || it.name || "Produk";
         const size = (it.selectedSize || it.size || "").toUpperCase();
         return `*${itemName}* (${it.part} - ${it.color} - ${size}) x${it.qty} = Rp ${(Number(it.price || 0) * it.qty).toLocaleString()}`;
       })
       .join("\n");
 
-    // 3. Susun pesan dengan template string yang bersih
-    // Jangan pakai spasi di awal baris di dalam backticks (``) agar tidak menjorok
     const message = `*MAHA THE LABEL - OFFICIAL INVOICE*
-  ===============================
-  *Client:* ${lastTransaction.customer?.name || "Valued Patron"}
-  *Ref:* #${lastTransaction.id}
-  *Date:* ${lastTransaction.date} | ${lastTransaction.time}
-  -----------------------------------------------
-  ${itemDetails}
-  -----------------------------------------------
-  *Subtotal:* Rp ${lastTransaction.subtotal.toLocaleString()}
-  *Discount:* Rp ${lastTransaction.discount.toLocaleString()}
-  *TOTAL AMOUNT: Rp ${lastTransaction.total.toLocaleString()}*
-  -----------------------------------------------
-  *Payment:* ${lastTransaction.method}
-  ===============================
-  _Thank you for your patronage. Kind regards._
+===============================
+*Client:* ${lastTransaction.customer?.name || "Valued Patron"}
+*Ref:* #${lastTransaction.id}
+*Date:* ${lastTransaction.date} | ${lastTransaction.time}
+-----------------------------------------------
+${itemDetails}
+-----------------------------------------------
+*Subtotal:* Rp ${lastTransaction.subtotal.toLocaleString()}
+*Discount:* Rp ${lastTransaction.discount.toLocaleString()}
+*TOTAL AMOUNT: Rp ${lastTransaction.total.toLocaleString()}*
+-----------------------------------------------
+*Payment:* ${lastTransaction.method}
+===============================
+_Thank you for your patronage. Kind regards._
 
-  *IG:* https://www.instagram.com/maha_thelabel`;
+*IG:* https://www.instagram.com/maha_thelabel`;
 
-    // 4. Kirim menggunakan URLSearchParams (Lebih stabil daripada encodeURIComponent manual)
     const params = new URLSearchParams({
       phone: phone,
       text: message
@@ -608,14 +667,11 @@ export default function POSMahaManagement() {
   const sendEmail = () => {
     if (!lastTransaction) return;
 
-    // 1. Ambil email customer dari data transaksi
     const to = lastTransaction.customer?.email || ""; 
     const subject = `Receipt from MAHA THE LABEL - ${lastTransaction.id}`;
 
-    // 2. Susun daftar item untuk isi email
     const itemDetails = lastTransaction.items
-      .map((it) => {
-        // Pastikan memanggil 'Item' (I besar) agar tidak undefined
+      .map((it: any) => {
         const itemName = it.Item || it.name || "Produk";
         const part = it.part || "";
         const color = it.color || "";
@@ -625,36 +681,46 @@ export default function POSMahaManagement() {
       })
       .join("\n");
 
-    // 3. Susun isi pesan lengkap
     const body = `
-    Thank you for your purchase!
+Thank you for your purchase!
 
-    Transaction ID: ${lastTransaction.id}
-    Date: ${lastTransaction.date} | Time: ${lastTransaction.time}
-    ---------------------------------------
-    Items:
-    ${itemDetails}
-    ---------------------------------------
-    Subtotal: Rp ${lastTransaction.subtotal.toLocaleString()}
-    Discount: Rp ${lastTransaction.discount.toLocaleString()}
-    
-    Total: Rp ${lastTransaction.total.toLocaleString()}
-    Payment: ${lastTransaction.method}
+Transaction ID: ${lastTransaction.id}
+Date: ${lastTransaction.date} | Time: ${lastTransaction.time}
+---------------------------------------
+Items:
+${itemDetails}
+---------------------------------------
+Subtotal: Rp ${lastTransaction.subtotal.toLocaleString()}
+Discount: Rp ${lastTransaction.discount.toLocaleString()}
 
-    Best regards,
-    MAHA THE LABEL
+Total: Rp ${lastTransaction.total.toLocaleString()}
+Payment: ${lastTransaction.method}
+
+Best regards,
+MAHA THE LABEL
     `.trim();
 
-    // 4. Buka aplikasi email dengan subjek, tujuan, dan isi otomatis
     window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
   
-  const handleImportCSV = (e) => {
+  const handleImportCSV = (e: any) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Penentuan cabang otomatis
+    const userRole = currentUser?.role?.toLowerCase();
+    let targetOutlet = "";
+
+    if (userRole === 'staff' || userRole === 'admin') {
+      targetOutlet = currentUser?.outlet || selectedOutlet;
+    } else {
+      targetOutlet = (selectedOutlet && selectedOutlet !== 'ALL') 
+        ? selectedOutlet 
+        : (currentUser?.outlet || outletsList[0] || 'Maha Lembongan');
+    }
+
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = async (event: any) => {
       try {
         const text = event.target.result;
         const rows = text.split('\n');
@@ -664,16 +730,14 @@ export default function POSMahaManagement() {
           return;
         }
 
-        // 1. Ambil Header dan bersihkan
-        const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
+        const headers = rows[0].split(',').map((h: string) => h.trim().toLowerCase());
 
-        // 2. Parse setiap baris CSV
-        const parsedData = rows.slice(1).map((row, index) => {
+        const parsedData = rows.slice(1).map((row: string) => {
           if (!row.trim()) return null;
           const values = row.split(',');
           
-          const obj = {};
-          headers.forEach((header, i) => {
+          const obj: any = {};
+          headers.forEach((header: string, i: number) => {
             obj[header] = values[i] ? values[i].trim() : "";
           });
 
@@ -684,7 +748,6 @@ export default function POSMahaManagement() {
           const color = obj.color || obj.warna || "";
           const size = obj.size || obj.ukuran || "";
           
-          // Buat SKU otomatis jika di CSV tidak ada kolom SKU
           const generatedSku = obj.sku || `sku-${item}-${part}-${color}-${size}`.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
           return {
@@ -695,7 +758,10 @@ export default function POSMahaManagement() {
             Size: size,
             Category: obj.category || obj.kategori || "General",
             Price: parseInt(obj.price || obj.harga || 0),
-            Total: parseInt(obj.total || obj.stock || obj.stok || 0)
+            Total: parseInt(obj.total || obj.stock || obj.stok || 0),
+
+            // Tepat mengarah ke kolom 'outlet_name' di Supabase
+            outlet_name: obj.outlet_name || obj.outlet || obj.cabang || targetOutlet
           };
         }).filter(Boolean);
 
@@ -704,7 +770,6 @@ export default function POSMahaManagement() {
           return;
         }
 
-        // 3. Masukkan / Unggah langsung ke Supabase
         const { error } = await supabase
           .from('products')
           .upsert(parsedData, { onConflict: 'sku' });
@@ -715,15 +780,14 @@ export default function POSMahaManagement() {
           return;
         }
 
-        // 4. Tarik ulang data terbaru dari Supabase untuk ditampilkan di layar
         const { data: latestData, error: fetchErr } = await supabase.from('products').select('*');
         if (!fetchErr && latestData) {
           setProducts(latestData);
         }
 
-        alert(`Berhasil mengimpor ${parsedData.length} barang ke Supabase!`);
+        alert(`Berhasil mengimpor ${parsedData.length} barang ke cabang ${targetOutlet}!`);
 
-      } catch (err) {
+      } catch (err: any) {
         console.error("Import Error:", err);
         alert("Terjadi kesalahan saat memproses CSV: " + err.message);
       }
@@ -733,6 +797,31 @@ export default function POSMahaManagement() {
   };
 
   const handlePayment = async () => {
+    const userRole = (currentUser?.role || "").toString().toLowerCase().trim();
+    
+    // 1. Ambil nama outlet dari currentUser dengan mengecek semua kemungkinan nama field/kolom
+    const userOutlet = currentUser?.outlet || currentUser?.outlet_name || currentUser?.branch || currentUser?.cabang;
+
+    // 2. Tentukan activeOutlet secara presisi
+    let activeOutlet = "";
+
+    if (userRole === 'staff' || userRole === 'admin') {
+      // Staff / Admin: Wajib gunakan outlet terdaftar user
+      activeOutlet = userOutlet;
+    } else {
+      // Manager / General Staff: Gunakan dropdown jika bukan ALL
+      if (selectedOutlet && selectedOutlet !== 'ALL') {
+        activeOutlet = selectedOutlet;
+      } else {
+        activeOutlet = userOutlet;
+      }
+    }
+
+    // Fallback terakhir jika benar-benar tidak terdeteksi di state
+    if (!activeOutlet) {
+      activeOutlet = "Maha Lembongan";
+    }
+
     const newTransaction = {
       id: `${Date.now()}`,
       date: new Date().toLocaleDateString(),
@@ -745,16 +834,17 @@ export default function POSMahaManagement() {
       discount: grandTotalDiscount,
       total: totalFinal,
       method: paymentMethod,
+      
+      // TAMBAHKAN KOLOM INI UNTUK SUPABASE
+      outlet_name: activeOutlet,
     };
 
-    // 1. Simpan Transaksi ke Cloud
     const { error: saleErr } = await supabase.from('sales').insert([newTransaction]);
     if (saleErr) {
       alert("Gagal menyimpan transaksi: " + saleErr.message);
       return;
     }
 
-    // 2. Potong Stok Produk di Cloud
     for (const item of cart) {
       const matchedProduct = products.find(p => 
         (p.Item || "").trim() === (item.Item || item.name || "").trim() &&
@@ -775,8 +865,6 @@ export default function POSMahaManagement() {
     }
 
     setLastTransaction(newTransaction);
-    
-    // TAMBAHKAN BARIS INI (Sesuaikan 'setSalesHistory' atau 'setSales' dengan nama state report kamu):
     setSalesHistory((prev) => [newTransaction, ...prev]);
 
     setShowReceipt(true);
@@ -787,7 +875,7 @@ export default function POSMahaManagement() {
     setPaymentMethod('Cashless');
   };
   
-  const handleAddManual = async (e) => {
+  const handleAddManual = async (e: any) => {
     e.preventDefault();
     const formData = new FormData(e.target);
 
@@ -796,11 +884,10 @@ export default function POSMahaManagement() {
     const newItemColor = (formData.get("color") || "").toString().trim();
     const newItemSize = (formData.get("size") || "").toString().trim().toUpperCase();
     const newItemCategory = (formData.get("category") || "").toString().trim();
-    const newItemPrice = parseInt(formData.get("price")) || 0;
-    const newItemStock = parseInt(formData.get("stock")) || 0;
+    const newItemPrice = parseInt(formData.get("price") as string) || 0;
+    const newItemStock = parseInt(formData.get("stock") as string) || 0;
     const newItemSku = (formData.get("sku") || "").toString().trim();
 
-    // Cek apakah item sudah ada di cloud
     const existingProduct = products.find(p => 
       (p.Item || "").trim().toLowerCase() === newItemName.toLowerCase() &&
       (p.Part || "").trim().toLowerCase() === newItemPart.toLowerCase() &&
@@ -821,11 +908,13 @@ export default function POSMahaManagement() {
         Price: newItemPrice,
         Total: newItemStock,
         Category: newItemCategory,
-        sku: newItemSku
+        sku: newItemSku,
+        outlet_name: selectedOutlet
       }]);
       alert("Produk varian baru berhasil ditambahkan!");
     }
 
+    fetchProductsFromSupabase();
     e.target.reset();
   };
 
@@ -836,107 +925,204 @@ export default function POSMahaManagement() {
     }
   };
   
-  const exportToExcel = (type = 'sales', dataToPrint = []) => {
-    if (dataToPrint.length === 0) {
+  const exportToExcel = (type = 'sales', dataToPrint: any[] | null = null) => {
+    // 1. DETERMINE CURRENT OUTLET NAME & CHECK IF ALL BRANCHES IS SELECTED
+    const userRole = (currentUser?.role || "").toString().toLowerCase().trim();
+    const userOutlet = currentUser?.outlet || currentUser?.outlet_name || currentUser?.cabang || "";
+    const currentSelected = (selectedOutlet || "").toString().trim().toUpperCase();
+
+    let isAllBranches = false;
+    let activeOutletName = "MAHA_ALL_BRANCHES";
+
+    if (userRole === 'staff' || userRole === 'admin') {
+      const staffBranch = userOutlet || "Maha Lembongan";
+      activeOutletName = staffBranch.toLowerCase().startsWith('maha')
+        ? staffBranch
+        : `Maha ${staffBranch}`;
+      isAllBranches = false;
+    } else {
+      if (!currentSelected || currentSelected === 'ALL' || currentSelected === 'ALL BRANCHES' || currentSelected === 'SEMUA') {
+        isAllBranches = true;
+        activeOutletName = "MAHA_ALL_BRANCHES";
+      } else {
+        isAllBranches = false;
+        activeOutletName = selectedOutlet.toLowerCase().startsWith('maha')
+          ? selectedOutlet
+          : `Maha ${selectedOutlet}`;
+      }
+    }
+
+    const sanitizedOutletName = activeOutletName.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // 2. AMBIL DATA DENGAN FILTER YANG SESUAI JIKA DATATOPRINT KOSONG / PADA SAAT TYPE INVENTORY
+    let sourceData = dataToPrint;
+
+    if (type === 'sales') {
+      if (!sourceData || sourceData.length === 0) {
+        sourceData = typeof getFilteredSales === 'function' ? getFilteredSales() : [];
+      }
+    } else {
+      // TIPE INVENTORY
+      let rawInventory = (sourceData && sourceData.length > 0) 
+        ? sourceData 
+        : (typeof products !== 'undefined' ? products : []);
+
+      // JIKA BUKAN ALL BRANCHES, FILTER BARANGSESUAI OUTLET / CABANG YANG DIPILIH
+      if (!isAllBranches) {
+        const targetBranch = (selectedOutlet || userOutlet || "").toString().toLowerCase().trim();
+        rawInventory = rawInventory.filter((p: any) => {
+          const itemOutlet = (p.outlet || p.outlet_name || p.cabang || p.Outlet || p.store || "").toString().toLowerCase().trim();
+          // Jika itemOutlet kosong, atau cocok dengan outlet yang dipilih
+          return !itemOutlet || itemOutlet.includes(targetBranch.replace('maha ', '')) || targetBranch.includes(itemOutlet);
+        });
+      }
+
+      sourceData = rawInventory;
+    }
+
+    if (!sourceData || sourceData.length === 0) {
       alert("Tidak ada data untuk di-export sesuai filter yang dipilih.");
       return;
     }
 
-    let dataToExport = [];
+    let dataToExport: any[] = [];
 
     if (type === 'sales') {
-      dataToExport = dataToPrint.flatMap((sale) => {
-        // Hitung subtotal bersih dari seluruh item (setelah diskon item)
-        const netSubtotal = sale.items.reduce((acc, it) => {
+      dataToExport = sourceData.flatMap((sale) => {
+        let rawItems = sale.items;
+        if (typeof rawItems === 'string') {
+          try { rawItems = JSON.parse(rawItems); } catch(e) { rawItems = []; }
+        }
+        const safeItems = Array.isArray(rawItems) ? rawItems : [];
+
+        const netSubtotal = safeItems.reduce((acc: number, it: any) => {
           const netP = Number(it.discountedPrice || it.price || 0);
-          return acc + (netP * it.qty);
+          return acc + (netP * (Number(it.qty) || 1));
         }, 0);
 
-        // Diskon global (nota) - jika user mengisi diskon nota di akhir
-        const globalDisc = Number(sale.discount || 0) - sale.items.reduce((acc, it) => {
-          const grossP = Number(it.price || 0) * it.qty;
-          const netP = Number(it.discountedPrice || it.price || 0) * it.qty;
+        const globalDisc = Number(sale.discount || 0) - safeItems.reduce((acc: number, it: any) => {
+          const grossP = Number(it.price || 0) * (Number(it.qty) || 1);
+          const netP = Number(it.discountedPrice || it.price || 0) * (Number(it.qty) || 1);
           return acc + (grossP - netP);
         }, 0);
 
         const actualGlobalDisc = globalDisc > 0 ? globalDisc : 0;
 
-        return sale.items.map((item) => {
-          const unitPrice = Number(item.price || 0);
-          const itemNetPrice = Number(item.discountedPrice || item.price);
-          const totalItemBeforeDisc = unitPrice * item.qty;
-          
-          // 1. Diskon Khusus Item (Hasil inputan diskon per item)
-          const itemDiscNominal = totalItemBeforeDisc - (itemNetPrice * item.qty);
+        const saleDateFormatted = sale.date 
+          ? new Date(sale.date).toLocaleDateString('id-ID') 
+          : (sale.created_at ? new Date(sale.created_at).toLocaleDateString('id-ID') : '-');
 
-          // 2. Alokasi Diskon Global (Hanya jika ada diskon nota tambahan)
-          const itemNetTotal = itemNetPrice * item.qty;
+        const saleOutletName = sale.outlet || sale.outlet_name || sale.cabang || sale.Outlet || sale.store || "Maha Lembongan";
+
+        return safeItems.map((item: any) => {
+          const itemQty = Number(item.qty || 1);
+          const unitPrice = Number(item.price || 0);
+          const itemNetPrice = Number(item.discountedPrice || item.price || 0);
+          const totalItemBeforeDisc = unitPrice * itemQty;
+          
+          const itemDiscNominal = totalItemBeforeDisc - (itemNetPrice * itemQty);
+
+          const itemNetTotal = itemNetPrice * itemQty;
           const allocatedGlobalDisc = (netSubtotal > 0 && actualGlobalDisc > 0)
             ? (itemNetTotal / netSubtotal) * actualGlobalDisc 
             : 0;
 
-          // Total Diskon Riil per Baris
           const totalDiscNominal = itemDiscNominal + allocatedGlobalDisc;
           const totalItemFinal = totalItemBeforeDisc - totalDiscNominal;
 
-          // Tampilan Persentase
           let discPercentDisplay = '-';
-          if (totalItemBeforeDisc > 0 && totalDiscNominal > 0) {
+          if (item.itemDiscType === 'percent' && item.itemDiscValue > 0) {
+            discPercentDisplay = `${item.itemDiscValue}%`;
+          } else if (totalItemBeforeDisc > 0 && totalDiscNominal > 0) {
             discPercentDisplay = `${Math.round((totalDiscNominal / totalItemBeforeDisc) * 100)}%`;
           }
 
-          return {
-            "Tanggal": sale.date + ' ' + (sale.time || ''),
-            "ID Transaksi": sale.id,
-            "Qty": item.qty,
-            "Item": `${item.Item || item.name} | ${item.part || '-'} | ${item.color || '-'} (${item.selectedSize || item.size || '-'})`,
-            "Unit Price": unitPrice,
-            "Total Item": totalItemBeforeDisc,
-            "Disc %": discPercentDisplay,
-            "Disc Nominal": Math.round(totalDiscNominal),
-            "Final Price": Math.round(totalItemFinal),
-            "Pay Method": sale.method,
-            "Shift": sale.shift || '-',
-            "PIC": sale.staff || '-'
-          };
+          const row: Record<string, any> = {};
+
+          if (isAllBranches) {
+            row["Outlet"] = saleOutletName;
+          }
+
+          row["Tanggal"] = saleDateFormatted + ' ' + (sale.time || '');
+          row["ID Transaksi"] = sale.id;
+          row["Qty"] = itemQty;
+          row["Item"] = `${item.Item || item.name || '-'} | ${item.part || '-'} | ${item.color || '-'} (${item.selectedSize || item.size || '-'})`;
+          row["Unit Price"] = unitPrice;
+          row["Total Item"] = totalItemBeforeDisc;
+          row["Disc %"] = discPercentDisplay;
+          row["Disc Nominal"] = Math.round(totalDiscNominal);
+          row["Final Price"] = Math.round(totalItemFinal);
+          row["Pay Method"] = sale.payment_method || sale.method || 'Cash';
+          row["Shift"] = sale.shift || '-';
+          row["PIC"] = sale.staff || '-';
+
+          return row;
         });
       });
     } else {
-      dataToExport = dataToPrint.map(p => ({
-        'SKU': p.sku || p.SKU || '-',
-        'Item': p.item || p.Item,
-        'Part': p.part || p.Part || '-',
-        'Color': p.color || p.Color || '-',
-        'Size': p.size || p.Size || '-',
-        'Category': p.category || p.Category || '-',
-        'Stok': parseInt(p.Total || p.stock || 0), // Mengambil nilai stok terbaru
-        'Harga': p.price || p.Price
-      }));
+      // TIPE INVENTORY / STOCK
+      dataToExport = sourceData.map((p) => {
+        const row: Record<string, any> = {};
+
+        // Tambahkan kolom Outlet di awal HANYA jika All Branches
+        if (isAllBranches) {
+          row["Outlet"] = p.outlet || p.outlet_name || p.cabang || p.Outlet || p.store || "Maha Lembongan";
+        }
+
+        row['SKU'] = p.sku || p.SKU || '-';
+        row['Item'] = p.item || p.Item || p.name || '-';
+        row['Part'] = p.part || p.Part || '-';
+        row['Color'] = p.color || p.Color || '-';
+        row['Size'] = p.size || p.Size || '-';
+        row['Category'] = p.category || p.Category || '-';
+        row['Stok'] = parseInt(p.Total || p.stock || p.stok || p.qty || 0);
+        row['Harga'] = Number(p.price || p.Price || p.harga || 0);
+
+        return row;
+      });
     }
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const fileName = `Laporan_${sanitizedOutletName}_${type}_${todayStr}.xlsx`;
 
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan");
-    XLSX.writeFile(workbook, `Laporan_Maha_${type}_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(workbook, fileName);
   };
 
-  const exportToPDF = async (dataToPrint = null) => {
-    // === BACA DATA LANGSUNG DARI SUPABASE JIKA TIDAK ADA DATA DI-PASSING ===
-    let sourceData = dataToPrint;
-    if (!sourceData || sourceData.length === 0) {
-      const { data: supabaseSales, error } = await supabase
-        .from('sales')
-        .select('*')
-        .order('id', { ascending: false });
+  const exportToPDF = async (dataToPrint: any[] | null = null) => {
+    const userRole = (currentUser?.role || "").toString().toLowerCase().trim();
+    const userOutlet = currentUser?.outlet || currentUser?.outlet_name || currentUser?.cabang;
 
-      if (error) {
-        alert("Gagal mengambil data dari Supabase: " + error.message);
-        return;
+    // 1. DENTIFIKASI JUDUL CABANG SECARA PRESISI
+    let displayOutletHeader = "MAHA THE LABEL (ALL BRANCHES)";
+
+    if (userRole === 'staff' || userRole === 'admin') {
+      // Staff / Admin: Selalu cabang tempat mereka ditugaskan
+      const staffBranch = userOutlet || "Maha Lembongan";
+      displayOutletHeader = staffBranch.toLowerCase().startsWith('maha')
+        ? staffBranch
+        : `Maha ${staffBranch}`;
+    } else {
+      // Manager / Super Admin
+      if (selectedOutlet && selectedOutlet !== 'ALL') {
+        displayOutletHeader = selectedOutlet.toLowerCase().startsWith('maha')
+          ? selectedOutlet
+          : `Maha ${selectedOutlet}`;
+      } else {
+        // Jika pilih ALL atau belum memilih
+        displayOutletHeader = "MAHA THE LABEL (ALL BRANCHES)";
       }
-      sourceData = supabaseSales || [];
     }
 
-    // Pemetaan data agar formatnya seragam
+    // 2. AMBIL DATA DENGAN FILTER YANG SESUAI (JIKA DATATOPRINT KOSONG)
+    let sourceData = dataToPrint;
+    if (!sourceData || sourceData.length === 0) {
+      // Gunakan data terfilter dari fungsi getFilteredSales()
+      sourceData = getFilteredSales();
+    }
+
     const safeSales = sourceData.map(sale => {
       let rawItems = sale.items;
       if (typeof rawItems === 'string') {
@@ -965,14 +1151,12 @@ export default function POSMahaManagement() {
       .reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
 
     const allRows = safeSales.flatMap(sale => {
-      // Subtotal setelah diskon item
-      const netSubtotal = sale.items.reduce((acc, it) => {
+      const netSubtotal = sale.items.reduce((acc: number, it: any) => {
         const netP = Number(it.discountedPrice || it.price || 0);
         return acc + (netP * (it.qty || 1));
       }, 0);
 
-      // Hitung sisa diskon global (jika ada input diskon nota di akhir)
-      const itemDiscountsTotal = sale.items.reduce((acc, it) => {
+      const itemDiscountsTotal = sale.items.reduce((acc: number, it: any) => {
         const grossP = Number(it.price || 0) * (it.qty || 1);
         const netP = Number(it.discountedPrice || it.price || 0) * (it.qty || 1);
         return acc + (grossP - netP);
@@ -980,16 +1164,14 @@ export default function POSMahaManagement() {
 
       const actualGlobalDisc = Math.max(0, Number(sale.discount || 0) - itemDiscountsTotal);
 
-      return sale.items.map(item => {
+      return sale.items.map((item: any) => {
         const itemQty = Number(item.qty || 1);
         const unitPrice = Number(item.price || 0);
         const itemNetPrice = Number(item.discountedPrice || item.price || 0);
         const totalItemBeforeDisc = unitPrice * itemQty;
         
-        // 1. Diskon dari inputan Per-Item
         const itemDiscNominal = totalItemBeforeDisc - (itemNetPrice * itemQty);
 
-        // 2. Diskon dari Nota Global (jika ada)
         const itemNetTotal = itemNetPrice * itemQty;
         const allocatedGlobalDisc = (netSubtotal > 0 && actualGlobalDisc > 0)
           ? (itemNetTotal / netSubtotal) * actualGlobalDisc 
@@ -998,7 +1180,6 @@ export default function POSMahaManagement() {
         const totalDiscNominal = itemDiscNominal + allocatedGlobalDisc;
         const totalItemFinal = totalItemBeforeDisc - totalDiscNominal;
 
-        // Format Tampilan Persentase
         let discPercentDisplay = '-';
         if (item.itemDiscType === 'percent' && item.itemDiscValue > 0) {
           discPercentDisplay = `${item.itemDiscValue}%`;
@@ -1033,7 +1214,6 @@ export default function POSMahaManagement() {
       </tr>
     `).join('');
     
-    // === PENENTUAN FORMAT PERIODE DENGAN ORDINAL SUPERSCRIPT ===
     let periodText = "Semua";
 
     if (dateRange === 'daily' || dateRange === 'today') {
@@ -1046,7 +1226,6 @@ export default function POSMahaManagement() {
     } else if (dateRange === 'all') {
       periodText = "Semua";
     } else if (safeSales && safeSales.length > 0) {
-      // Fallback: baca dari daftar transaksi jika ada filter lain (misal monthly)
       const dates = safeSales.map(s => s.created_at || s.date_raw || s.date).filter(Boolean);
       if (dates.length > 0) {
         const firstDate = dates[dates.length - 1];
@@ -1056,10 +1235,11 @@ export default function POSMahaManagement() {
     }
 
     const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
     printWindow.document.write(`
       <html>
         <head>
-          <title>Laporan Penjualan - Maha The Label - Lembongan</title>
+          <title>Laporan Penjualan - ${displayOutletHeader}</title>
           <style>
             body { font-family: 'Segoe UI', sans-serif; padding: 20px; color: #1e293b; }
             .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
@@ -1072,21 +1252,16 @@ export default function POSMahaManagement() {
             .summary-card h4 { margin: 0 0 10px 0; font-size: 12px; color: #64748b; }
             .summary-card p { margin: 0; font-size: 16px; font-weight: bold; color: #0f172a; }
             
-            /* Konfigurasi Header & Footer Halaman Cetak (Print) */
             @media print { 
               .no-print { display: none; }
               @page {
                 margin: 15mm 10mm 15mm 10mm;
-                
-                /* Footer Kiri Bawah Custom: menggantikan bawaan URL / about:blank */
                 @bottom-left {
                   content: "Printed: " "${new Date().toLocaleString('id-ID')}";
                   font-size: 9px;
                   font-family: 'Segoe UI', sans-serif;
                   color: #64748b;
                 }
-                
-                /* Footer Kanan Bawah Custom: Menampilkan Halaman */
                 @bottom-right {
                   content: "Halaman " counter(page) " dari " counter(pages);
                   font-size: 9px;
@@ -1099,11 +1274,11 @@ export default function POSMahaManagement() {
         </head>
         <body>
           <div class="header">
-          <h1 style="margin:0; font-size: 18px;">MAHA The Label, Lembongan - SALES REPORT</h1>
-          <p style="margin:5px 0; font-size:10px; font-weight: bold; color: #475569;">
-            Periode: ${periodText}
-          </p>
-        </div>
+            <h1 style="margin:0; font-size: 18px;">${displayOutletHeader.toUpperCase()} - SALES REPORT</h1>
+            <p style="margin:5px 0; font-size:10px; font-weight: bold; color: #475569;">
+              Periode: ${periodText}
+            </p>
+          </div>
 
           <table>
             <thead>
@@ -1153,8 +1328,7 @@ export default function POSMahaManagement() {
     printWindow.print();
   };
 
-  const handleLogin = async () => { // <-- TAMBAHKAN async DI SINI
-    // 1. Cari dulu ke Supabase berdasarkan PIN
+  const handleLogin = async () => {
     const { data: userFromDb } = await supabase
       .from('staff')
       .select('*')
@@ -1163,21 +1337,23 @@ export default function POSMahaManagement() {
 
     let user = userFromDb;
 
-    // 2. Fallback cadangan jika Supabase offline/belum merespon
     if (!user) {
       if (loginPin === "1234") {
-        user = { id: 3, name: 'Manager_Maha', pin: '1234', role: 'Manager' };
+        user = { id: 3, name: 'Manager_Maha', pin: '1234', role: 'maha_manager', outlet_name: 'Maha Lembongan' };
       } else if (loginPin === "1111") {
-        user = { id: 1, name: 'Nila R', pin: '1111', role: 'Admin' };
+        user = { id: 1, name: 'Nila R', pin: '1111', role: 'super_admin', outlet_name: 'Maha Lembongan' };
       } else if (loginPin === "2222") {
-        user = { id: 2, name: 'Bram Pungky', pin: '2222', role: 'Staff' };
+        user = { id: 2, name: 'Bram Pungky', pin: '2222', role: 'staff', outlet_name: 'Maha Lembongan' };
       }
     }
 
-    // 3. Jika user ditemukan, proses login
     if (user) {
-      // Sesuaikan nama variabel state kamu (setCurrentUser & setActiveTab)
       setCurrentUser(user);
+      
+      if (user.outlet_name) {
+        setSelectedOutlet(user.outlet_name);
+      }
+      
       setLoginPin("");
       setActiveTab("pos");
     } else {
@@ -1190,24 +1366,23 @@ export default function POSMahaManagement() {
   const recordActivity = () => setLastActivity(Date.now());
 
   const groupedProducts = useMemo(() => {
-    const filtered = products.filter(p => {
+    const filtered = displayedProducts.filter(p => {
       if (!p) return false;
-      const name = String(p.Item || "").toLowerCase();
-      const part = String(p.Part || "").toLowerCase();
-      const color = String(p.Color || "").toLowerCase();
+      const name = String(p.Item || p.name || "").toLowerCase();
+      const part = String(p.Part || p.part || "").toLowerCase();
+      const color = String(p.Color || p.color || "").toLowerCase();
       const search = (searchTerm || "").toLowerCase();
       return name.includes(search) || part.includes(search) || color.includes(search);
     });
 
-    const groups = {};
+    const groups: { [key: string]: any[] } = {};
     filtered.forEach(p => {
-      // KUNCI BARU: Gabungkan Item, Part, dan Color
-      const key = `${p.Item}-${p.Part}-${p.Color}`; 
+      const key = `${p.Item || p.name}-${p.Part || p.part}-${p.Color || p.color}`; 
       if (!groups[key]) groups[key] = [];
       groups[key].push(p);
     });
     return groups;
-  }, [products, searchTerm]);
+  }, [displayedProducts, searchTerm]);
 
   if (!currentUser) {
     return (
@@ -1238,7 +1413,7 @@ export default function POSMahaManagement() {
                <button onClick={() => setActiveTab("settings")} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-500'}`}><Settings size={20}/><span className="hidden md:block font-bold text-sm">Settings</span></button>
              </>
            )}
-           {currentUser?.role === 'Staff' && (
+           {(currentUser?.role === 'Staff' || currentUser?.role === 'General Staff') && (
              <>
                <button onClick={() => setActiveTab("inventory")} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${activeTab === 'inventory' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-500'}`}><Package size={20}/><span className="hidden md:block font-bold text-sm">Inventory</span></button>
                <button onClick={() => setActiveTab("reports")} className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all ${activeTab === 'reports' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-500'}`}><BarChart3 size={20}/><span className="hidden md:block font-bold text-sm">Reports</span></button>
@@ -1250,19 +1425,77 @@ export default function POSMahaManagement() {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className="h-20 bg-[#0f172a] border-b border-slate-800 flex items-center justify-between px-8">
-           <h2 className="text-lg font-black text-white uppercase tracking-widest">{activeTab}</h2>
-           <div className="flex items-center gap-4 bg-[#1e293b] px-4 py-2 rounded-2xl border border-slate-800">
-             <div className="text-right">
-               <p className="text-[9px] font-black text-slate-500 uppercase">
-                 {currentUser?.role || "-"}
-               </p>
+          <div className="flex items-center gap-6">
+            <h2 className="text-lg font-black text-white uppercase tracking-widest">{activeTab}</h2>
+            
+            <div className="flex items-center space-x-2 bg-[#1e293b] px-3 py-1.5 rounded-xl border border-slate-700">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Cabang:</span>
+              <select
+                value={selectedOutlet}
+                onChange={(e) => setSelectedOutlet(e.target.value)}
+                // Terkunci hanya untuk Admin & Staff
+                disabled={
+                  currentUser?.role?.toLowerCase() === 'staff' ||
+                  currentUser?.role?.toLowerCase() === 'admin'
+                }
+                className="bg-slate-800 text-xs font-bold text-white focus:outline-none cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed rounded-xl px-3 py-2 border border-slate-700"
+              >
+                {/* Opsi Global hanya untuk Manager & General Staff */}
+                {(currentUser?.role?.toLowerCase() === 'manager' ||
+                  currentUser?.role?.toLowerCase() === 'general staff' ||
+                  currentUser?.role?.toLowerCase() === 'general_staff') && (
+                  <option value="ALL" className="text-slate-900 bg-white">
+                    Semua Cabang (Global)
+                  </option>
+                )}
 
-               <p className="text-xs font-bold text-white">
-                 {currentUser?.name || "User"}
-               </p>
-             </div>
-             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-black">{currentUser?.name?.[0] || "U"}</div>
-           </div>
+                {outletsList && outletsList.length > 0 ? (
+                  outletsList.map((outlet: any, index: number) => {
+                    // Extract nama cabang dengan aman
+                    const name = typeof outlet === 'string' 
+                      ? outlet 
+                      : (outlet?.name || outlet?.outlet || outlet?.outlet_name || outlet?.cabang || '');
+
+                    // Extract Key unik
+                    const key = typeof outlet === 'object' && outlet !== null
+                      ? (outlet.id || outlet.code || outlet.name || index)
+                      : (outlet || index);
+
+                    if (!name) return null;
+
+                    return (
+                      <option key={key} value={name} className="text-slate-900 bg-white">
+                        {name}
+                      </option>
+                    );
+                  })
+                ) : (
+                  /* Fallback otomatis jika database Supabase belum/gagal ter-load */
+                  <>
+                    <option value="Maha Lembongan" className="text-slate-900 bg-white">Maha Lembongan</option>
+                    <option value="Maha Yogyakarta" className="text-slate-900 bg-white">Maha Yogyakarta</option>
+                    <option value="Maha Gili" className="text-slate-900 bg-white">Maha Gili</option>
+                    <option value="Maha Amed" className="text-slate-900 bg-white">Maha Amed</option>
+                  </>
+                )}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4 bg-[#1e293b] px-4 py-2 rounded-2xl border border-slate-800">
+            <div className="text-right">
+              <p className="text-[9px] font-black text-slate-500 uppercase">
+                {currentUser?.role || "-"}
+              </p>
+
+              <p className="text-xs font-bold text-white">
+                {currentUser?.name || "User"}
+              </p>
+            </div>
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-black text-white">
+              {currentUser?.name?.[0] || "U"}
+            </div>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto p-8">
@@ -1285,18 +1518,18 @@ export default function POSMahaManagement() {
                       >
                         <div className="space-y-1">
                           <h4 className="text-white font-black uppercase text-sm tracking-tighter">
-                            {displayItem.Item}
+                            {displayItem.Item || displayItem.name}
                           </h4>
                           <div className="flex gap-2">
                             <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full uppercase">
-                              {displayItem.Part}
+                              {displayItem.Part || displayItem.part}
                             </span>
                             <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-full uppercase">
-                              {displayItem.Color}
+                              {displayItem.Color || displayItem.color}
                             </span>
                           </div>
                           <p className="text-blue-500 font-black text-xs pt-2">
-                            Rp {parseInt(displayItem.Price).toLocaleString()}
+                            Rp {parseInt(displayItem.Price || displayItem.price || 0).toLocaleString()}
                           </p>
                         </div>
                       </div>
@@ -1316,10 +1549,9 @@ export default function POSMahaManagement() {
                     </div>
                   </div>
                   {cart.map((item, index) => (
-                    <div key={`${item.Item}-${item.part}-${item.color}-${item.selectedSize}-${item.itemDiscValue}-${item.itemDiscType}-${index}`} className="flex flex-col mb-4 bg-slate-800/50 p-4 rounded-2xl border border-slate-700">
+                    <div key={`${item.Item || item.name}-${item.part}-${item.color}-${item.selectedSize}-${index}`} className="flex flex-col mb-4 bg-slate-800/50 p-4 rounded-2xl border border-slate-700">
                       <div className="flex justify-between items-start">
                         <div className="text-right">
-                          {/* Tampilkan Diskon Item jika ada */}
                           {item.itemDiscValue > 0 && (
                             <p className="text-[10px] text-red-400 line-through">
                               Rp {Number(item.price).toLocaleString()}
@@ -1328,16 +1560,14 @@ export default function POSMahaManagement() {
                           <p className="font-black text-blue-500">
                             Rp {Number(item.discountedPrice || item.price).toLocaleString()}
                           </p>
-                          {/* TOMBOL SAMPAH MERAH */}
                           <button
                             onClick={() => removeFromCartByIndex(index)}
-                            className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 hover:bg-red-900/30 hover:text-red-400"
+                            className="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-400 hover:bg-red-900/30 hover:text-red-400 mt-2"
                           >
                             Remove Item #{index + 1}
                           </button>
                         </div>
                         <div className="flex gap-3">
-                          {/* Indikator Jumlah (Qty) - Bulatan Biru/Putih */}
                           <div className="flex items-center justify-center bg-blue-600 text-white w-8 h-8 rounded-full font-bold text-xs shrink-0">
                             {item.qty}x
                           </div>
@@ -1353,7 +1583,6 @@ export default function POSMahaManagement() {
                         </div>
                       </div>
     
-                      {/* Info tambahan diskon di bawah nama barang */}
                       {item.itemDiscValue > 0 && (
                         <div className="mt-1">
                           <span className="bg-red-500/10 text-red-400 text-[9px] px-2 py-0.5 rounded-full font-bold">
@@ -1394,7 +1623,6 @@ export default function POSMahaManagement() {
           {activeTab === 'inventory' && (
             <div className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* SEBELAH KIRI: TAMBAH STOK MANUAL (Tetap sama) */}
                 <div className="bg-[#1e293b] p-8 rounded-[2.5rem] border border-slate-800">
                   <h3 className="text-white font-black mb-6 flex items-center gap-2"><Plus size={18}/> TAMBAH STOK MANUAL</h3>
                   <form onSubmit={handleAddManual} className="grid grid-cols-2 gap-4">
@@ -1403,7 +1631,7 @@ export default function POSMahaManagement() {
                     <select name="category" className="bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs text-white">
                       {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
-                      <input name="part" placeholder="Part" className="bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs text-white"/>
+                    <input name="part" placeholder="Part" className="bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs text-white"/>
                     <input name="color" placeholder="Color" className="bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs text-white"/>
                     <input name="size" placeholder="Size" className="bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs text-white" required/>
                     <input name="price" type="number" placeholder="Price" className="bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs text-white" required/>
@@ -1412,25 +1640,23 @@ export default function POSMahaManagement() {
                   </form>
                 </div>
 
-                  {/* SEBELAH KANAN: IMPORT & EXPORT STOK (Disisipkan di sini) */}
                 <div className="bg-[#1e293b] p-8 rounded-[2.5rem] border border-slate-800 flex flex-col items-center justify-center text-center text-white">
                   <div className="w-16 h-16 bg-blue-600/10 text-blue-500 rounded-full flex items-center justify-center mb-4"><Upload size={32}/></div>
                   <h3 className="font-black mb-2 uppercase tracking-widest">Manajemen Data Stok</h3>
-                    <p className="text-slate-500 text-xs mb-6 px-10">Gunakan CSV untuk update massal atau Export untuk laporan stok saat ini.</p>
+                  <p className="text-slate-500 text-xs mb-6 px-10">Gunakan CSV untuk update massal atau Export untuk laporan stok saat ini.</p>
         
                   <input type="file" ref={fileInputRef} className="hidden" onChange={handleImportCSV} accept=".csv"/>
         
-                  {/* Tombol Berdampingan */}
                   <div className="flex gap-4 w-full px-6">
                     <button 
-                      onClick={() => fileInputRef.current.click()} 
+                      onClick={() => fileInputRef.current?.click()} 
                       className="flex-1 bg-white text-black py-3 rounded-xl font-black text-[10px] uppercase hover:bg-slate-200 transition-all"
                     >
                       Import CSV
                     </button>
 
                     <button 
-                      onClick={() => exportToExcel('inventory', products)} // Pastikan variabelnya 'products' atau ganti sesuai state-mu
+                      onClick={() => exportToExcel('inventory', products)}
                       className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black text-[10px] uppercase hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
                     >
                       Export Excel
@@ -1443,7 +1669,6 @@ export default function POSMahaManagement() {
 
           {activeTab === 'reports' && (
             <div className="space-y-6">
-              {/* --- CARD FILTER (Bagian Atas) --- */}
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-[#1e293b] p-6 rounded-[2rem] border border-slate-800 shadow-xl">
                 <div className="space-y-2">
                   <h3 className="text-white font-black uppercase tracking-widest text-[10px] opacity-50">Filter Periode</h3>
@@ -1462,7 +1687,6 @@ export default function POSMahaManagement() {
                   </div>
                 </div>
 
-                {/* Input Tanggal Custom */}
                 {dateRange === 'custom' && (
                   <div className="flex gap-2 items-center animate-in fade-in slide-in-from-left-4">
                     <input 
@@ -1481,7 +1705,6 @@ export default function POSMahaManagement() {
                   </div>
                 )}
 
-                {/* Tombol Export (Hanya 1 set tombol) */}
                 <div className="flex gap-3">
                   <button 
                     onClick={() => exportToExcel('sales', getFilteredSales())}
@@ -1498,7 +1721,6 @@ export default function POSMahaManagement() {
                 </div>
               </div>
 
-              {/* --- TABEL TRANSAKSI (Gunakan data Filtered) --- */}
               <div className="bg-[#1e293b] rounded-[2rem] border border-slate-800 overflow-hidden shadow-2xl">
                 <table className="w-full text-left text-xs text-white">
                   <thead className="bg-[#0f172a] text-slate-500 font-black uppercase">
@@ -1509,24 +1731,20 @@ export default function POSMahaManagement() {
                       <th className="p-4">PIC / Shift</th>
                       <th className="p-4">Method</th>
                       <th className="p-4 text-right">Total</th>
-                      {/* Kolom Khusus Manager */}
-                      {(currentUser?.role === 'Manager') && (
-                        <th className="p-4 text-center text-red-500">Action</th>
-                      )}
-                      {(currentUser?.role !== 'Manager') && (
-                        <th className="p-4 text-center">Action</th>
+                      <th className="p-4 text-center">Action</th>
+                      {currentUser?.role === 'Manager' && (
+                        <th className="p-4 text-center text-red-500">Delete</th>
                       )}
                     </tr>
                   </thead>
                   <tbody>
                     {getFilteredSales().length > 0 ? (
                       getFilteredSales().flatMap((s, saleIndex) =>
-                        s.items.map((item, itemIndex) => (
+                        s.items.map((item: any, itemIndex: number) => (
                           <tr
                             key={`${saleIndex}-${itemIndex}`}
                             className="border-t border-slate-800 hover:bg-slate-800/50 transition-colors"
                           >
-                            {/* 1. TANGGAL (Muncul cuma di baris pertama transaksi) */}
                             <td className="p-4 text-slate-400 font-mono">
                               {itemIndex === 0 ? (
                                 <>
@@ -1538,12 +1756,10 @@ export default function POSMahaManagement() {
                               )}
                             </td>
 
-                            {/* 2. QTY */}
                             <td className="p-4 font-bold text-blue-500 text-center">
                               {item.qty}
                             </td>
 
-                            {/* 3. ITEM (GABUNGAN) */}
                             <td className="p-4">
                               <p className="font-bold text-white uppercase text-[11px]">
                                 {item.Item || item.name}
@@ -1553,7 +1769,6 @@ export default function POSMahaManagement() {
                               </p>
                             </td>
 
-                            {/* 4. PIC / SHIFT */}
                             <td className="p-4 text-slate-400">
                               {itemIndex === 0 ? (
                                 <>
@@ -1565,7 +1780,6 @@ export default function POSMahaManagement() {
                               )}
                             </td>
 
-                            {/* 5. METHOD & EDIT (Manager Only) */}
                             <td className="p-4">
                               {itemIndex === 0 ? (
                                 <div className="flex items-center gap-2">
@@ -1586,7 +1800,6 @@ export default function POSMahaManagement() {
                               )}
                             </td>
 
-                            {/* 6. TOTAL HARGA ITEM */}
                             <td className="p-4 text-right font-black text-white">
                               Rp {(Number(item.discountedPrice || item.price) * item.qty).toLocaleString()}
                             </td>
@@ -1604,7 +1817,6 @@ export default function POSMahaManagement() {
                               )}
                             </td>
 
-                            {/* 7. DELETE ACTION (Manager Only) */}
                             {currentUser?.role === 'Manager' && (
                               <td className="p-4 text-center">
                                 {itemIndex === 0 ? (
@@ -1617,14 +1829,13 @@ export default function POSMahaManagement() {
                                 ) : null}
                               </td>
                             )}
-
                           </tr>
                         ))
                       )
                     ) : (
                       <tr>
                         <td
-                          colSpan={currentUser?.role === 'Manager' ? 7 : 6}
+                          colSpan={currentUser?.role === 'Manager' ? 8 : 7}
                           className="p-20 text-center text-slate-500 italic opacity-30 uppercase tracking-widest font-bold"
                         >
                           Tidak ada transaksi pada periode ini
@@ -1641,6 +1852,7 @@ export default function POSMahaManagement() {
             <div className="space-y-8">
               <div className="flex justify-between items-center text-white">
                 <h3 className="font-black uppercase tracking-widest">Karyawan Aktif</h3>
+
                 <button 
                   onClick={async () => {
                     const name = prompt("Nama Karyawan:");
@@ -1649,14 +1861,29 @@ export default function POSMahaManagement() {
                     const pin = prompt("PIN:");
                     if (!pin) return;
 
-                    const roleChoice = prompt("Pilih Role:\n1. Admin\n2. Staff\n3. Manager", "2");
+                    const roleChoice = prompt("Pilih Role:\n1. Super Admin\n2. Staff\n3. Maha Manager", "2");
                     let role = "Staff";
-                    if (roleChoice === "1") role = "Admin";
-                    else if (roleChoice === "3") role = "Manager";
+                    if (roleChoice === "1") role = "Super Admin";
+                    else if (roleChoice === "3") role = "Maha Manager";
+
+                    // 1. Dapatkan daftar nama cabang secara dinamis dari outletsList
+                    const availableOutlets = outletsList.map((item: any) => 
+                      typeof item === 'string' ? item : (item?.name || '')
+                    ).filter(Boolean);
+
+                    // Buat daftar teks opsi untuk prompt (misal: "1. Maha Lembongan\n2. Maha Yogyakarta\n3. Maha Canggu...")
+                    const promptText = "Pilih Cabang Tugas:\n" + 
+                      availableOutlets.map((outletName: string, index: number) => `${index + 1}. ${outletName}`).join("\n");
+
+                    const outletChoice = prompt(promptText, "1");
+                    if (!outletChoice) return;
+
+                    // 2. Tentukan outlet_name berdasarkan indeks pilihan pengguna
+                    const selectedIndex = parseInt(outletChoice, 10) - 1;
+                    const outlet_name = availableOutlets[selectedIndex] || availableOutlets[0] || "Maha Lembongan";
 
                     const generatedId = Math.floor(Date.now() / 1000);
 
-                    // Simpan ke Supabase
                     const { data, error } = await supabase
                       .from('staff')
                       .insert([
@@ -1664,7 +1891,8 @@ export default function POSMahaManagement() {
                           id: generatedId, 
                           name: name.trim(), 
                           pin: String(pin).trim(), 
-                          role 
+                          role,
+                          outlet_name
                         }
                       ])
                       .select();
@@ -1676,7 +1904,7 @@ export default function POSMahaManagement() {
 
                     if (data && data.length > 0) {
                       setStaffList(prev => [...prev, data[0]]);
-                      alert(`Karyawan ${name} (${role}) berhasil ditambahkan!`);
+                      alert(`Karyawan ${name} (${role} - ${outlet_name}) berhasil ditambahkan!`);
                     }
                   }} 
                   className="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold text-[10px] flex items-center gap-2 hover:bg-blue-500 transition-colors"
@@ -1694,7 +1922,6 @@ export default function POSMahaManagement() {
                       <p className="text-slate-500 font-mono text-xs mt-2 italic">PIN: {s.pin}</p>
                     </div>
                     <div className="flex gap-2">
-                      {/* BUTTON EDIT (Termasuk Edit Role) */}
                       <button 
                         onClick={async () => {
                           const newName = prompt("Edit Nama:", s.name);
@@ -1703,14 +1930,14 @@ export default function POSMahaManagement() {
                           const newPin = prompt("Edit PIN:", s.pin);
                           if (!newPin) return;
 
-                          const currentRoleNum = s.role === 'Admin' ? '1' : s.role === 'Manager' ? '3' : '2';
-                          const roleChoice = prompt("Pilih Role Baru:\n1. Admin\n2. Staff\n3. Manager", currentRoleNum);
+                          const currentRoleNum = s.role === 'Admin' ? '1' : s.role === 'Manager' ? '3' : s.role === 'General Staff' ? '4' : '2';
+                          const roleChoice = prompt("Pilih Role Baru:\n1. Admin\n2. Staff\n3. Manager\n4. General Staff", currentRoleNum);
                           let newRole = s.role;
                           if (roleChoice === "1") newRole = "Admin";
                           else if (roleChoice === "2") newRole = "Staff";
                           else if (roleChoice === "3") newRole = "Manager";
+                          else if (roleChoice === "4") newRole = "General Staff";
 
-                          // Update ke Supabase Cloud
                           const { error } = await supabase
                             .from('staff')
                             .update({ 
@@ -1725,7 +1952,6 @@ export default function POSMahaManagement() {
                             return;
                           }
 
-                          // Update state tampilan lokal
                           setStaffList(staffList.map(st => st?.id === s?.id ? { ...st, name: newName, pin: newPin, role: newRole } : st));
                           alert(`Data ${newName} berhasil diubah!`);
                         }} 
@@ -1734,7 +1960,6 @@ export default function POSMahaManagement() {
                         <Settings size={14}/>
                       </button>
 
-                      {/* BUTTON HAPUS */}
                       {s.name !== 'Manager_Maha' && (
                         <button 
                           onClick={async () => {
@@ -1766,12 +1991,61 @@ export default function POSMahaManagement() {
 
           {activeTab === 'settings' && (
             <div className="max-w-2xl mx-auto bg-[#1e293b] p-8 rounded-[2.5rem] border border-slate-800 text-white space-y-8">
-              
+
+              {/* HANYA MANAGER YANG BISA LIHAT & AKSES FORM TAMBAH CABANG */}
+                {isManager && (
+                  <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border shadow-sm my-4">
+                    <h3 className="text-sm font-bold text-gray-800 dark:text-white uppercase mb-4">
+                      Tambah Cabang Baru (Khusus Manager)
+                    </h3>
+                    <form onSubmit={handleAddNewOutlet} className="flex gap-3">
+                      <input
+                        type="text"
+                        placeholder="Nama Cabang (contoh: Maha Canggu)"
+                        value={newOutletName}
+                        onChange={(e) => setNewOutletName(e.target.value)}
+                        className="flex-1 p-3 rounded-xl border dark:bg-zinc-800 text-sm"
+                        required
+                      />
+                      <button
+                        type="submit"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl text-xs font-bold uppercase transition-all"
+                      >
+                        + Tambah Cabang
+                      </button>
+                    </form>
+                  </div>
+                )}
+
               <div>
                 <h3 className="font-black mb-6 uppercase tracking-widest">Store Settings</h3>
+
                 <div className="space-y-6">
-                  
-                  {/* LOGO UPLOAD */}
+                  {/* 1. Pemilih Cabang yang Ingin Diatur */}
+                  <div>
+                    <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Pilih Cabang Yang Diatur</label>
+                    <select
+                      value={selectedOutlet !== 'ALL' ? selectedOutlet : (currentUser?.outlet || '')}
+                      onChange={(e) => {
+                        const selected = e.target.value;
+                        setSelectedOutlet(selected);
+                        fetchShopSettings(selected);
+                      }}
+                      className="w-full bg-[#0f172a] border border-slate-700 p-4 rounded-2xl text-xs mt-1 text-white font-bold"
+                    >
+                      {outletsList.map((item: any, idx: number) => {
+                        const name = typeof item === 'string' ? item : (item?.name || '');
+                        if (!name) return null;
+                        return (
+                          <option key={idx} value={name} className="bg-slate-900 text-white">
+                            {name}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* 2. Upload Logo Struk */}
                   <div className="flex flex-col items-center p-6 border-2 border-dashed border-slate-700 rounded-3xl">
                     {shopDetails.logo ? (
                       <img src={shopDetails.logo} alt="Logo Toko" className="h-20 object-contain mb-4 rounded-lg" />
@@ -1784,25 +2058,34 @@ export default function POSMahaManagement() {
                       className="hidden" 
                       accept="image/*" 
                       onChange={(e) => {
-                        const file = e.target.files[0];
+                        const file = e.target.files?.[0];
                         if (file) {
+                          // Batasi ukuran file mentah maksimal 2MB sebelum proses
+                          if (file.size > 2 * 1024 * 1024) {
+                            alert("Ukuran gambar terlalu besar! Harap pilih gambar di bawah 2MB.");
+                            return;
+                          }
+
                           const reader = new FileReader();
                           reader.onloadend = () => {
-                            // Kompresi Gambar agar ukuran string base64 kecil & ringan di Supabase
                             const img = new Image();
-                            img.src = reader.result;
+                            img.src = reader.result as string;
                             img.onload = () => {
                               const canvas = document.createElement("canvas");
                               const ctx = canvas.getContext("2d");
-                              const maxWidth = 300; // Ukuran lebar optimal untuk logo struk
+
+                              // Struk kasir hanya butuh lebar maksimal 200px - 250px
+                              const maxWidth = 200; 
                               const scale = maxWidth / img.width;
                               canvas.width = maxWidth;
                               canvas.height = img.height * scale;
 
-                              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                              const compressedBase64 = canvas.toDataURL("image/jpeg/png", 0.7); // Kualitas 70%
+                              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                              // Kompresi kualitas gambar menjadi 0.5 (50%) agar file sangat ringan (< 30-50 KB)
+                              const compressedBase64 = canvas.toDataURL("image/jpeg", 0.5);
                               
-                              setShopDetails({ ...shopDetails, logo: compressedBase64 });
+                              setShopDetails(prev => ({ ...prev, logo: compressedBase64 }));
                             };
                           };
                           reader.readAsDataURL(file);
@@ -1810,14 +2093,14 @@ export default function POSMahaManagement() {
                       }}
                     />
                     <button 
-                      onClick={() => logoInputRef.current.click()} 
+                      onClick={() => logoInputRef.current?.click()} 
                       className="bg-blue-600 px-6 py-2 rounded-xl text-[10px] font-black uppercase text-white hover:bg-blue-500 transition-colors"
                     >
                       Upload Logo Struk
                     </button>
                   </div>
 
-                  {/* INPUT FORM */}
+                  {/* 3. Form Input Alamat & Kontak */}
                   <div className="space-y-4">
                     <div>
                       <label className="text-[10px] font-black text-slate-500 uppercase ml-2">Alamat Toko</label>
@@ -1847,29 +2130,34 @@ export default function POSMahaManagement() {
                     </div>
                   </div>
 
-                  {/* TOMBOL SIMPAN TO SUPABASE */}
+                  {/* 4. Tombol Simpan Berdasarkan Cabang */}
                   <button
                     onClick={async () => {
                       try {
+                        const currentTargetOutlet = selectedOutlet !== 'ALL' 
+                          ? selectedOutlet 
+                          : (currentUser?.outlet || 'Maha Lembongan');
+
                         const { error } = await supabase
                           .from('shop_settings')
                           .upsert([
                             {
-                              id: 1, 
+                              outlet_name: currentTargetOutlet, // <-- Disimpan berdasarkan nama cabang
                               logo: shopDetails.logo || null,
                               address: shopDetails.address || '',
                               phone: shopDetails.phone || '',
-                              ig: shopDetails.ig || ''
+                              ig: shopDetails.ig || '',
+                              updated_at: new Date()
                             }
-                          ]);
+                          ], { onConflict: 'outlet_name' });
 
                         if (error) {
                           alert("Gagal menyimpan ke Supabase: " + error.message);
                           return;
                         }
 
-                        alert("Pengaturan & Logo Toko berhasil disimpan permanen di Supabase!");
-                      } catch (err) {
+                        alert(`Pengaturan & Logo untuk cabang "${currentTargetOutlet}" berhasil disimpan!`);
+                      } catch (err: any) {
                         alert("Terjadi kesalahan: " + err.message);
                       }
                     }}
@@ -1877,11 +2165,9 @@ export default function POSMahaManagement() {
                   >
                     SIMPAN PENGATURAN TOKO
                   </button>
-
                 </div>
               </div>
 
-              {/* ZONA BAHAYA */}
               <div className="bg-rose-500/5 p-8 rounded-[2.5rem] border border-rose-500/20">
                 <h3 className="text-rose-500 font-black mb-2 uppercase text-xs">Zona Bahaya</h3>
                 <p className="text-slate-500 text-[10px] mb-6">Menghapus semua data stok, riwayat penjualan, dan pengaturan toko secara permanen.</p>
@@ -1892,13 +2178,11 @@ export default function POSMahaManagement() {
                   RESET SELURUH SISTEM
                 </button>
               </div>
-
             </div>
           )}
         </main>
       </div>
 
-      {/* MODAL STRUK DIGITAL (RECEIPT) */}
       {showReceipt && lastTransaction && (
         <div className="fixed inset-0 bg-[#0f172a]/95 backdrop-blur-md z-[500] flex items-center justify-center p-4">
           <div className="bg-white text-slate-900 w-full max-w-[350px] rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col">
@@ -1924,8 +2208,8 @@ export default function POSMahaManagement() {
                   <span>{lastTransaction.date} {lastTransaction.time}</span>
                 </div>
                 <div className="space-y-2 py-2">
-                  {lastTransaction.items.map((it, idx) => {
-                    const formatText = (txt) => {
+                  {lastTransaction.items.map((it: any, idx: number) => {
+                    const formatText = (txt: string) => {
                       if (!txt) return "";
                       return txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase();
                     };
@@ -1934,9 +2218,7 @@ export default function POSMahaManagement() {
                       <div key={idx} className="flex flex-col mb-2">
                         <div className="flex justify-between">
                           <span className="flex-1 leading-tight">
-                            {/* Item Bold */}
                             <strong className="font-black">{it.Item || it.name}</strong> 
-                            {/* Spasi dan detail lainnya */}
                             <span>
                               {" "}{formatText(it.part)} {formatText(it.color)} ({String(it.selectedSize || it.size || "").toUpperCase()})
                             </span>
@@ -1973,10 +2255,9 @@ export default function POSMahaManagement() {
               <button onClick={sendEmail} className="flex-1 flex flex-col items-center gap-1 p-3 bg-white rounded-2xl hover:bg-blue-50 border border-slate-100"><Mail size={16} className="text-indigo-600"/><span className="text-[8px] font-black">EMAIL</span></button>
               <button 
                 onClick={() => {
-                  setShowReceipt(false);       // Tutup struk
-                  setDiscountType('percent');   // KEMBALIKAN tipe ke persen
-                  setDiscountValue(0);         // RESET nilai diskon ke 0
-                  // setCart([]);              // (Opsional) Tambahkan ini jika keranjang belum kosong
+                  setShowReceipt(false);
+                  setDiscountType('percent');
+                  setDiscountValue(0);
                 }} 
                 className="flex-1 flex flex-col items-center gap-1 p-3 bg-slate-900 rounded-2xl hover:bg-black transition-colors text-white"
               >
@@ -1988,14 +2269,11 @@ export default function POSMahaManagement() {
         </div>
       )}
 
-      {/* MODAL PILIH SIZE */}
       {sizeModal.show && sizeModal.product && (
         <div className="fixed inset-0 bg-[#0f172a]/90 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
           <div className="bg-[#1e293b] p-8 rounded-[3rem] border border-slate-700 w-full max-w-md">
-      
-            {/* Header Modal */}
             <div className="flex justify-between items-center mb-6 text-white">
-              <h2 className="font-black uppercase">{sizeModal.product[0]?.Item || "Pilih Ukuran"}</h2>
+              <h2 className="font-black uppercase">{sizeModal.product[0]?.Item || sizeModal.product[0]?.name || "Pilih Ukuran"}</h2>
               <button
                 onClick={() => setSizeModal({show: false, product: null})}
                 className="text-slate-500 hover:text-white"
@@ -2004,7 +2282,6 @@ export default function POSMahaManagement() {
               </button>
             </div>
 
-            {/* 1. SISIPKAN INPUT DISKON DI SINI (Sebelum List Size) */}
             <div className="mb-6 p-4 bg-slate-900/50 rounded-[2rem] border border-slate-700">
               <div className="flex justify-between items-center mb-3">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Item Discount</span>
@@ -2031,43 +2308,38 @@ export default function POSMahaManagement() {
               />
             </div>
 
-            {/* Grid Size */}
             <div className="grid grid-cols-2 gap-3">
               {Array.isArray(sizeModal.product) && sizeModal.product.map((variant, i) => {
-                const stokTersedia = parseInt(variant.Total || variant.Display || 0);
+                const stokTersedia = parseInt(variant.Total || variant.stock || 0);
 
                 return (
                   <button
                     key={i}
                     disabled={stokTersedia <= 0}
                     onClick={() => {
-                      // 1. Cek jumlah item yang SUDAH ADA di keranjang saat ini
                       const currentItemInCart = cart.find(c => 
-                        c.Item === variant.Item && 
-                        (c.selectedSize || "").toString().trim().toUpperCase() === (variant.Size || "").toString().trim().toUpperCase() && 
-                        (c.color || "").toString().trim() === (variant.Color || "").toString().trim() &&
-                        (c.part || "").toString().trim() === (variant.Part || "").toString().trim()
+                        (c.Item || c.name) === (variant.Item || variant.name) && 
+                        (c.selectedSize || "").toString().trim().toUpperCase() === (variant.Size || variant.size || "").toString().trim().toUpperCase() && 
+                        (c.color || "").toString().trim() === (variant.Color || variant.color || "").toString().trim() &&
+                        (c.part || "").toString().trim() === (variant.Part || variant.part || "").toString().trim()
                       );
                       
                       const currentQty = currentItemInCart ? currentItemInCart.qty : 0;
 
-                      // 2. Validasi Batas Stok
                       if (currentQty >= stokTersedia) {
-                        alert(`GAGAL: Stok ${variant.Item} (${variant.Size}) terbatas!\n\nMaksimal: ${stokTersedia} pcs\nDi keranjang: ${currentQty} pcs`);
+                        alert(`GAGAL: Stok ${variant.Item || variant.name} (${variant.Size || variant.size}) terbatas!\n\nMaksimal: ${stokTersedia} pcs\nDi keranjang: ${currentQty} pcs`);
                         return;
                       }
 
-                      // 3. Tambahkan ke keranjang (+1)
                       addToCart(
                         variant, 
-                        variant.Part || "", 
-                        variant.Color || "", 
-                        variant.Size || "", 
+                        variant.Part || variant.part || "", 
+                        variant.Color || variant.color || "", 
+                        variant.Size || variant.size || "", 
                         itemDiscType, 
                         itemDiscValue 
                       );
 
-                      // 4. Reset & Tutup Modal
                       setItemDiscValue(0);
                       setItemDiscType('percent');
                       setSizeModal({show: false, product: null});
@@ -2079,8 +2351,8 @@ export default function POSMahaManagement() {
                     }`}
                   >
                     <div className="flex flex-col items-start">
-                      <span>{variant.Size}</span>
-                      <span className="text-[10px] text-slate-400 font-normal">{variant.Color}</span>
+                      <span>{variant.Size || variant.size}</span>
+                      <span className="text-[10px] text-slate-400 font-normal">{variant.Color || variant.color}</span>
                     </div>
                     <span className="text-[10px] text-blue-500">{stokTersedia} pcs</span>
                   </button>
