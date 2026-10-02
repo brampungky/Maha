@@ -796,6 +796,15 @@ MAHA THE LABEL
     reader.readAsText(file);
   };
 
+  // Fungsi untuk menghasilkan format m/d/yyyy yang seragam di semua perangkat
+  const getFormattedDate = (dateObj = new Date()) => {
+    const month = dateObj.getMonth() + 1; // getMonth() dimulai dari 0
+    const day = dateObj.getDate();
+    const year = dateObj.getFullYear();
+    
+    return `${month}/${day}/${year}`; // Hasil selalu: m/d/yyyy (contoh: 10/2/2026)
+  };
+
   const handlePayment = async () => {
     const userRole = (currentUser?.role || "").toString().toLowerCase().trim();
     
@@ -824,7 +833,7 @@ MAHA THE LABEL
 
     const newTransaction = {
       id: `${Date.now()}`,
-      date: new Date().toLocaleDateString(),
+      date: getFormattedDate(),
       time: new Date().toLocaleTimeString(),
       staff: currentUser?.name || '-',
       shift: (new Date().getHours() * 60 + new Date().getMinutes()) <= 915 ? "Morning" : "Evening",
