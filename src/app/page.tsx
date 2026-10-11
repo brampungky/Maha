@@ -815,10 +815,8 @@ MAHA THE LABEL
     let activeOutlet = "";
 
     if (userRole === 'staff' || userRole === 'admin') {
-      // Staff / Admin: Wajib gunakan outlet terdaftar user
       activeOutlet = userOutlet;
     } else {
-      // Manager / General Staff: Gunakan dropdown jika bukan ALL
       if (selectedOutlet && selectedOutlet !== 'ALL') {
         activeOutlet = selectedOutlet;
       } else {
@@ -826,7 +824,6 @@ MAHA THE LABEL
       }
     }
 
-    // Fallback terakhir jika benar-benar tidak terdeteksi di state
     if (!activeOutlet) {
       activeOutlet = "Maha Lembongan";
     }
@@ -843,8 +840,6 @@ MAHA THE LABEL
       discount: grandTotalDiscount,
       total: totalFinal,
       method: paymentMethod,
-      
-      // TAMBAHKAN KOLOM INI UNTUK SUPABASE
       outlet_name: activeOutlet,
     };
 
@@ -853,6 +848,9 @@ MAHA THE LABEL
       alert("Gagal menyimpan transaksi: " + saleErr.message);
       return;
     }
+
+    // Array untuk menampung perubahan stok secara lokal
+    let updatedProductsList = [...products];
 
     for (const item of cart) {
       const matchedProduct = products.find(p => 
@@ -866,12 +864,21 @@ MAHA THE LABEL
         const currentStock = parseInt(matchedProduct.Total || 0);
         const updatedStock = Math.max(0, currentStock - item.qty);
 
+        // Update ke database Supabase
         await supabase
           .from('products')
           .update({ Total: updatedStock })
           .eq('id', matchedProduct.id);
+
+        // Update juga nilai di dalam array lokal
+        updatedProductsList = updatedProductsList.map(p => 
+          p.id === matchedProduct.id ? { ...p, Total: updatedStock } : p
+        );
       }
     }
+
+    // 3. UPDATE STATE PRODUK SEKETIKA TANPA REFRESH HALAMAN!
+    setProducts(updatedProductsList);
 
     setLastTransaction(newTransaction);
     setSalesHistory((prev) => [newTransaction, ...prev]);
