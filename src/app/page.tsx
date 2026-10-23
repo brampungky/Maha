@@ -759,8 +759,6 @@ MAHA THE LABEL
             Category: obj.category || obj.kategori || "General",
             Price: parseInt(obj.price || obj.harga || 0),
             Total: parseInt(obj.total || obj.stock || obj.stok || 0),
-
-            // Tepat mengarah ke kolom 'outlet_name' di Supabase
             outlet_name: obj.outlet_name || obj.outlet || obj.cabang || targetOutlet
           };
         }).filter(Boolean);
@@ -770,14 +768,33 @@ MAHA THE LABEL
           return;
         }
 
-        const { error } = await supabase
-          .from('products')
-          .upsert(parsedData, { onConflict: 'sku' });
+        // Ambil data produk terbaru dari database untuk pengecekan stok lama
+        const { data: existingProducts } = await supabase.from('products').select('*');
 
-        if (error) {
-          console.error("Supabase Import Error:", error);
-          alert("Gagal mengunggah ke Supabase: " + error.message);
-          return;
+        // Loop setiap item CSV untuk menjumlahkan stok jika SKU sudah ada
+        for (const newItem of parsedData) {
+          const found = existingProducts?.find(p => (p.sku || "").trim().toLowerCase() === newItem.sku.toLowerCase());
+
+          if (found) {
+            // JIKA SKU SUDAH ADA: Jumlahkan stok lama dengan stok baru dari CSV!
+            const mergedStock = parseInt(found.Total || 0) + parseInt(newItem.Total || 0);
+            await supabase
+              .from('products')
+              .update({ 
+                Total: mergedStock,
+                Price: newItem.Price > 0 ? newItem.Price : found.Price,
+                Item: newItem.Item,
+                Part: newItem.Part,
+                Color: newItem.Color,
+                Size: newItem.Size,
+                Category: newItem.Category,
+                outlet_name: newItem.outlet_name
+              })
+              .eq('id', found.id);
+          } else {
+            // JIKA BELUM ADA: Insert produk baru
+            await supabase.from('products').insert([newItem]);
+          }
         }
 
         const { data: latestData, error: fetchErr } = await supabase.from('products').select('*');
@@ -785,7 +802,7 @@ MAHA THE LABEL
           setProducts(latestData);
         }
 
-        alert(`Berhasil mengimpor ${parsedData.length} barang ke cabang ${targetOutlet}!`);
+        alert(`Berhasil mengimpor & menambahkan stok ${parsedData.length} barang ke cabang ${targetOutlet}!`);
 
       } catch (err: any) {
         console.error("Import Error:", err);
@@ -904,17 +921,21 @@ MAHA THE LABEL
     const newItemStock = parseInt(formData.get("stock") as string) || 0;
     const newItemSku = (formData.get("sku") || "").toString().trim();
 
+    // Cek berdasarkan SKU atau kombinasi spesifikasi produk
     const existingProduct = products.find(p => 
-      (p.Item || "").trim().toLowerCase() === newItemName.toLowerCase() &&
-      (p.Part || "").trim().toLowerCase() === newItemPart.toLowerCase() &&
-      (p.Color || "").trim().toLowerCase() === newItemColor.toLowerCase() &&
-      (p.Size || "").trim().toLowerCase() === newItemSize.toLowerCase()
+      (p.sku || "").trim().toLowerCase() === newItemSku.toLowerCase() ||
+      (
+        (p.Item || "").trim().toLowerCase() === newItemName.toLowerCase() &&
+        (p.Part || "").trim().toLowerCase() === newItemPart.toLowerCase() &&
+        (p.Color || "").trim().toLowerCase() === newItemColor.toLowerCase() &&
+        (p.Size || "").trim().toLowerCase() === newItemSize.toLowerCase()
+      )
     );
 
     if (existingProduct) {
       const newStock = parseInt(existingProduct.Total || 0) + newItemStock;
       await supabase.from('products').update({ Total: newStock, Price: newItemPrice }).eq('id', existingProduct.id);
-      alert(`Stok diperbarui menjadi ${newStock} pcs`);
+      alert(`Stok berhasil ditambahkan! Total stok sekarang: ${newStock} pcs`);
     } else {
       await supabase.from('products').insert([{
         Item: newItemName,
