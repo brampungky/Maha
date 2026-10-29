@@ -121,12 +121,30 @@ export default function POSMahaManagement() {
     }
   };
 
-  const editPaymentMethod = (id: any, currentMethod: string) => {
+  const editPaymentMethod = async (id: any, currentMethod: string) => {
     const newMethod = currentMethod === 'Cash' ? 'Cashless' : 'Cash';
     if (window.confirm(`Ubah metode pembayaran ke ${newMethod}?`)) {
-      setSalesHistory(prev => prev.map(sale => 
-        sale.id === id ? { ...sale, method: newMethod } : sale
-      ));
+      try {
+        // 1. Update ke database Supabase berdasarkan id transaksi
+        const { error } = await supabase
+          .from('sales')
+          .update({ method: newMethod }) // atau 'payment_method': newMethod jika kolomnya berbeda
+          .eq('id', id);
+
+        if (error) {
+          alert("Gagal memperbarui metode pembayaran ke Supabase: " + error.message);
+          return;
+        }
+
+        // 2. Update state lokal setelah berhasil di database
+        setSalesHistory(prev => prev.map(sale => 
+          sale.id === id ? { ...sale, method: newMethod } : sale
+        ));
+
+        alert(`Metode pembayaran berhasil diubah ke ${newMethod}!`);
+      } catch (err: any) {
+        alert("Terjadi kesalahan: " + err.message);
+      }
     }
   };
 
